@@ -28,20 +28,7 @@
         /// </summary>
         private void InitializeComponent()
         {
-            components = new System.ComponentModel.Container();
-            sharpClipboard1 = new WK.Libraries.SharpClipboardNS.SharpClipboard(components);
             SuspendLayout();
-            // 
-            // sharpClipboard1
-            // 
-            sharpClipboard1.MonitorClipboard = true;
-            sharpClipboard1.ObservableFormats.All = true;
-            sharpClipboard1.ObservableFormats.Files = true;
-            sharpClipboard1.ObservableFormats.Images = true;
-            sharpClipboard1.ObservableFormats.Others = true;
-            sharpClipboard1.ObservableFormats.Texts = true;
-            sharpClipboard1.ObserveLastEntry = true;
-            sharpClipboard1.Tag = null;
             // 
             // Main
             // 
@@ -56,7 +43,5 @@
         }
 
         #endregion
-
-        private WK.Libraries.SharpClipboardNS.SharpClipboard sharpClipboard1;
     }
 }

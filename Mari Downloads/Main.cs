@@ -15,6 +15,7 @@ using System.Windows.Forms;
 using WK.Libraries.SharpClipboardNS;
 using static Mari_Downloads.Main;
 using static Mari_Downloads.Main.Manager;
+using static Mari_Downloads.Main.Manager.Filter;
 
 namespace Mari_Downloads
 {
@@ -45,6 +46,13 @@ namespace Mari_Downloads
 
             //Panels Loaders
             UrlPnl = UrlsPanel();
+            GalleryDLArguments = GDLArguments();
+
+            //Filters Loader
+            Filter.Loader.Load("filters.json");
+
+            //Arguments Loader
+            GalleryDLArgs.Init();
 
             InitializeComponent();
             BaseComponents();
@@ -57,9 +65,12 @@ namespace Mari_Downloads
 
             _downloadChannel = Channel.CreateUnbounded<(Manager.Url, DataGridViewRow)>();
 
-            _semaphore = new SemaphoreSlim(Properties.Settings.Default.SimultaneousDownloads);
+            _maxDownloads = Properties.Settings.Default.SimultaneousDownloads;
+            _semaphore = new SemaphoreSlim(_maxDownloads);
 
             StartWorkers();
+
+            Properties.Settings.Default.DownloadPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "gallery-dl");
         }
 
         //Panel Constructor
@@ -114,11 +125,6 @@ namespace Mari_Downloads
                     Controls.Add(_upPanel);
             }
 
-
-            // =========================
-            // Controles
-            // =========================
-
             public void AddControl(Control control, DockStyle dock = DockStyle.Top)
             {
                 control.Dock = dock;
@@ -132,11 +138,6 @@ namespace Mari_Downloads
                 control.Dock = DockStyle.Fill;
                 _contentPanel.Controls.Add(control);
             }
-
-
-            // =========================
-            // Botones
-            // =========================
 
             public void AddDownControls(Control[] controls)
             {
@@ -167,10 +168,6 @@ namespace Mari_Downloads
                 _downPanel.Controls.Add(row);
             }
 
-            // =========================
-            // Rows
-            // =========================
-
             public void AddRow(List<Control> controls)
             {
                 var row = new FlowLayoutPanel
@@ -185,11 +182,6 @@ namespace Mari_Downloads
                 }
                 _contentPanel.Controls.Add(row);
             }
-
-
-            // =========================
-            // Estilo
-            // =========================
 
             public void FontAndColorMini()
             {
@@ -468,27 +460,194 @@ namespace Mari_Downloads
                     return parts[^2];
                 }
             }
-            public class UrlFilter
+            public static class Filter
             {
-                public string From { get; }
-                public string To { get; }
-
-                public UrlFilter(string from, string to)
+                public class Context
                 {
-                    From = from;
-                    To = to;
+                    public string Url { get; set; }
+
+                    public string Site { get; set; }
+
+                    public bool StopProcessing { get; set; }
                 }
-
-                public bool Match(string url)
+                public interface IUrlFilter
                 {
-                    return url.Contains(From, StringComparison.OrdinalIgnoreCase);
+                    bool Match(Context ctx);
+
+                    void Apply(Context ctx);
+
                 }
-
-                public string Apply(string url)
+                public static class Engine
                 {
-                    return url.Replace(From, To, StringComparison.OrdinalIgnoreCase);
+                    private static readonly List<IUrlFilter> _filters = new();
+
+                    private static readonly List<Entry> _entries = new();
+
+                    public static IReadOnlyList<Entry> Entries => _entries;
+
+                    public static void Register(IUrlFilter filter, Entry entry)
+                    {
+                        _filters.Add(filter);
+                        _entries.Add(entry);
+                    }
+
+                    public static Context Process(string url, string site)
+                    {
+                        var ctx = new Context
+                        {
+                            Url = url,
+                            Site = site,
+                            StopProcessing = false
+                        };
+
+                        foreach (var filter in _filters)
+                        {
+                            if (!filter.Match(ctx))
+                                continue;
+
+                            filter.Apply(ctx);
+
+                            if (ctx.StopProcessing)
+                                break;
+                        }
+                        return ctx;
+                    }
+                }
+                public class SiteAlias : IUrlFilter
+                {
+                    private readonly string _from;
+                    private readonly string _to;
+
+                    public SiteAlias(string from, string to)
+                    {
+                        _from = from;
+                        _to = to;
+                    }
+
+                    public bool Match(Context ctx)
+                    {
+                        return ctx.Site == _from;
+                    }
+
+                    public void Apply(Context ctx)
+                    {
+                        ctx.Site = _to;
+
+                        if (Uri.TryCreate(ctx.Url, UriKind.Absolute, out var uri))
+                        {
+                            var builder = new UriBuilder(uri);
+
+                            if (builder.Host.Contains(_from))
+                                builder.Host = builder.Host.Replace(_from, _to);
+
+                            ctx.Url = builder.Uri.ToString();
+                        }
+                    }
+                }
+                public class SiteRateLimit : IUrlFilter
+                {
+                    private readonly string _site;
+                    private readonly int _limit;
+
+                    public SiteRateLimit(string site, int limit)
+                    {
+                        _site = site;
+                        _limit = limit;
+
+                        Manager.SiteRateLimiter.SetLimit(site, limit);
+                    }
+
+                    public bool Match(Context ctx)
+                    {
+                        return ctx.Site == _site;
+                    }
+
+                    public void Apply(Context ctx)
+                    {
+                        // Doesn't modify anything
+                    }
+                }
+                public static class Loader
+                {
+                    public static void Load(string file)
+                    {
+                        if (!File.Exists(file))
+                            return;
+
+                        var json = File.ReadAllText(file);
+
+                        var filters = JsonSerializer.Deserialize<List<Entry>>(json);
+
+                        foreach (var f in filters)
+                        {
+                            switch (f.Type)
+                            {
+                                case "alias":
+
+                                    Engine.Register(
+                                        new SiteAlias(f.From, f.To),
+                                        f
+                                    );
+
+                                    break;
+
+                                case "ratelimit":
+
+                                    Engine.Register(
+                                        new SiteRateLimit(f.Site, int.Parse(f.Replace)),
+                                        f
+                                    );
+
+                                    break;
+                            }
+                        }
+                    }
+                }
+                public static class Saver
+                {
+                    public static void Save(string file)
+                    {
+                        try
+                        {
+                            var options = new JsonSerializerOptions
+                            {
+                                WriteIndented = true
+                            };
+
+                            var json = JsonSerializer.Serialize(
+                                Engine.Entries,
+                                options
+                            );
+
+                            File.WriteAllText(file, json);
+                        }
+                        catch (Exception ex)
+                        {
+                            MessageBox.Show(
+                                $"Error saving filters:\n{ex.Message}",
+                                "Filters Error",
+                                MessageBoxButtons.OK,
+                                MessageBoxIcon.Error
+                            );
+                        }
+                    }
+                }
+                public class Entry
+                {
+                    public string Type { get; set; }
+
+                    public string From { get; set; }
+
+                    public string To { get; set; }
+
+                    public string Site { get; set; }
+
+                    public int Limit { get; set; }
+
+                    public string Replace { get; set; }
                 }
             }
+            
             public class LogEntry
             {
                 public DateTime Date { get; set; }
@@ -561,7 +720,7 @@ namespace Mari_Downloads
 
             public static class Gallery_Dl
             {
-                public static async Task<Url> Run(Url url, string arguments)
+                public static async Task<int> Run(Url url, string arguments)
                 {
                     var startInfo = new ProcessStartInfo()
                     {
@@ -571,19 +730,18 @@ namespace Mari_Downloads
                         CreateNoWindow = true
                     };
 
-                    using (var process = new Process())
-                    {
-                        process.StartInfo = startInfo;
-                        process.Start();
-                        await process.WaitForExitAsync();
-                    }
+                    using var process = new Process();
+                    process.StartInfo = startInfo;
 
-                    return url;
+                    process.Start();
+                    await process.WaitForExitAsync();
+
+                    return process.ExitCode;
                 }
             }
             public static class YT_Dlp
             {
-                public static async Task<Url> Run(Url url, string arguments)
+                public static async Task<int> Run(Url url, string arguments)
                 {
                     var startInfo = new ProcessStartInfo()
                     {
@@ -593,14 +751,13 @@ namespace Mari_Downloads
                         CreateNoWindow = true
                     };
 
-                    using (var process = new Process())
-                    {
-                        process.StartInfo = startInfo;
-                        process.Start();
-                        await process.WaitForExitAsync();
-                    }
+                    using var process = new Process();
+                    process.StartInfo = startInfo;
 
-                    return url;
+                    process.Start();
+                    await process.WaitForExitAsync();
+
+                    return process.ExitCode;
                 }
             }
             public static class Downloader
@@ -612,26 +769,12 @@ namespace Mari_Downloads
                     "twitch"
                 };
 
-                public static async Task Run(Url url)
+                public static async Task<int> Run(Url url)
                 {
                     if (ytSites.Contains(url.site))
-                    {
-                        await YT_Dlp.Run(url, YTDLPArgs.Build());
-                    }
+                        return await YT_Dlp.Run(url, YTDLPArgs.Build());
                     else
-                    {
-                        await Gallery_Dl.Run(url, GalleryDLArgs.Build());
-                    }
-                }
-            }
-            public static class Errors
-            {
-                public static bool Check()
-                {
-                    string errorLogPath = "ErrorLog.txt";
-                    if (!File.Exists(errorLogPath))
-                        return false;
-                    return true;
+                        return await Gallery_Dl.Run(url, GalleryDLArgs.Build());
                 }
             }
             public class Argument
@@ -758,6 +901,36 @@ namespace Mari_Downloads
                     return Profile.Build();
                 }
             }
+            public static class SiteRateLimiter
+            {
+                private static readonly Dictionary<string, SemaphoreSlim> _siteSemaphores = new();
+                private static readonly Dictionary<string, int> _limits = new();
+
+                public static void SetLimit(string site, int limit)
+                {
+                    lock (_siteSemaphores)
+                    {
+                        _limits[site] = limit;
+
+                        if (_siteSemaphores.ContainsKey(site))
+                            _siteSemaphores[site] = new SemaphoreSlim(limit);
+                    }
+                }
+
+                public static SemaphoreSlim Get(string site)
+                {
+                    lock (_siteSemaphores)
+                    {
+                        if (!_siteSemaphores.ContainsKey(site))
+                        {
+                            int limit = _limits.ContainsKey(site) ? _limits[site] : 3;
+                            _siteSemaphores[site] = new SemaphoreSlim(limit);
+                        }
+
+                        return _siteSemaphores[site];
+                    }
+                }
+            }
         }
 
         private bool RepetedUrl(Manager.Url url)
@@ -775,19 +948,20 @@ namespace Mari_Downloads
         }
         public void AddUrl(Manager.Url url)
         {
+            var ctx = Filter.Engine.Process(url.url, url.site);
+
+            if (ctx.StopProcessing)
+                return;
+
+            url.url = ctx.Url;
+            url.site = ctx.Site;
+
             if (RepetedUrl(url))
                 return;
 
             url.status.Change(Manager.Status.StatusType.Pending);
 
             int index = _urls.Rows.Add(url.status.GetDisplay(), url.site, url.url);
-
-            var row = _urls.Rows[index];
-
-            if (Properties.Settings.Default.AutoStart)
-            {
-                _downloadChannel.Writer.TryWrite((url, row));
-            }
         }
         private void UpdateRowStatus(DataGridViewRow row, string status)
         {
@@ -858,50 +1032,65 @@ namespace Mari_Downloads
 
         private void StartWorkers()
         {
-            int workers = Properties.Settings.Default.SimultaneousDownloads;
+            int workers = Environment.ProcessorCount * 2;
 
             for (int i = 0; i < workers; i++)
-            {
                 Task.Run(WorkerLoop);
-            }
         }
         private async Task WorkerLoop()
         {
-            await foreach (var job in _downloadChannel.Reader.ReadAllAsync())
+            try
             {
-                UpdateRowStatus(job.row, "Queued");
-                await _semaphore.WaitAsync();
-
-                try
+                await foreach (var job in _downloadChannel.Reader.ReadAllAsync(_cts.Token))
                 {
-                    UpdateRowStatus(job.row, "Downloading");
+                    _pauseEvent.Wait();
 
-                    await Manager.Downloader.Run(job.url);
+                    await _semaphore.WaitAsync(_cts.Token);
 
-                    if (Errors.Check())
+                    var siteSemaphore = Manager.SiteRateLimiter.Get(job.url.site);
+
+                    await siteSemaphore.WaitAsync();
+
+                    try
                     {
-                        if (File.Exists("ErrorLog.txt"))
-                        {
+                        UpdateRowStatus(job.row, "Downloading");
+
+                        int exit = await Manager.Downloader.Run(job.url);
+
+                        if (exit != 0)
                             UpdateRowStatus(job.row, "Error");
-                            try { File.Delete("ErrorLog.txt"); } catch { }
+                        else
+                        {
+                            UpdateRowStatus(job.row, "Done");
+                            Manager.Log.Save(job.url);
                         }
+
+                        UrlsStatusUpdate();
                     }
-                    else
+                    finally
                     {
-                        UpdateRowStatus(job.row, "Done");
-                        Manager.Log.Save(job.url);
+                        siteSemaphore.Release();
+                        _semaphore.Release();
                     }
-                    UrlsStatusUpdate();
-                }
-                catch (Exception ex) 
-                {
-                    MessageBox.Show(ex.Message);
-                }
-                finally
-                {
-                    _semaphore.Release();
                 }
             }
+            catch (OperationCanceledException)
+            {
+            }
+        }
+        private void StopDownloads()
+        {
+            _cts.Cancel();
+            _cts = new CancellationTokenSource();
+        }
+        public void PauseDownloads()
+        {
+            _pauseEvent.Reset();
+        }
+
+        public void ResumeDownloads()
+        {
+            _pauseEvent.Set();
         }
 
         private void Start()
@@ -917,6 +1106,7 @@ namespace Mari_Downloads
                     string url = row.Cells["Url"].Value?.ToString();
                     var u = new Manager.Url(url);
 
+                    UpdateRowStatus(row, "Queued");
                     _downloadChannel.Writer.TryWrite((u, row));
                 }
             }
@@ -927,7 +1117,25 @@ namespace Mari_Downloads
             int[] count = UrlCount();
             StatusChange($"Total: {count[0]} | Sleeping: {count[1]} | Downloading: {count[2]} | Done: {count[3]} | Queued: {count[4]} | Errors: {count[5]}");
         }
+        private void ChangeSimultaneousDownloads(int newValue)
+        {
+            int diff = newValue - _maxDownloads;
 
+            if (diff > 0)
+            {
+                _semaphore.Release(diff);
+            }
+            else if (diff < 0)
+            {
+                for (int i = 0; i < -diff; i++)
+                    _semaphore.Wait();
+            }
+
+            _maxDownloads = newValue;
+
+            Properties.Settings.Default.SimultaneousDownloads = newValue;
+            Properties.Settings.Default.Save();
+        }
         private void BaseComponents()
         {
             ToolStrip tools = new ToolStrip
@@ -939,8 +1147,16 @@ namespace Mari_Downloads
             {
                 Image = Image.FromFile("media/icon.png")
             };
+            UrlsShow.Click += (sender, e) => { MiniPanelManager.Show(UrlPnl); };
+
+            ToolStripButton gdlArgs = new ToolStripButton
+            {
+                Image = Image.FromFile("media/icon.png")
+            };
+            gdlArgs.Click += (sender, e) => { MiniPanelManager.Show(GalleryDLArguments); };
 
             tools.Items.Add(UrlsShow);
+            tools.Items.Add(gdlArgs);
 
             _statusStrip = new StatusStrip { Name = "StatusStrip" };
 
@@ -1054,6 +1270,25 @@ namespace Mari_Downloads
             return urlpnl;
         }
 
+        private MiniPanel GDLArguments()
+        {
+            MiniPanel gdlArguments = new MiniPanel();
+
+            NumericUpDown SDNud = new NumericUpDown { Minimum = 1, Maximum = 20, Value = Properties.Settings.Default.SimultaneousDownloads, Width = 80 };
+            SDNud.ValueChanged += (s, e) =>
+            {
+                ChangeSimultaneousDownloads((int)SDNud.Value);
+            };
+
+            List<Control> SDownloads = new List<Control> 
+            { new Label { Text = "Simultaneous Downloads", Size = new Size(100,35), TextAlign = ContentAlignment.MiddleCenter }, SDNud};
+
+
+            gdlArguments.AddRow(SDownloads);
+
+            return gdlArguments;
+        }
+
         public static T FindControl<T>(Control parent, Func<T, bool> predicate) where T : class
         {
             foreach (Control control in parent.Controls)
@@ -1086,17 +1321,19 @@ namespace Mari_Downloads
         }
 
         private SemaphoreSlim _semaphore;
+        private int _maxDownloads;
+        private CancellationTokenSource _cts = new();
+        private ManualResetEventSlim _pauseEvent = new(true);
         private Channel<(Manager.Url url, DataGridViewRow row)> _downloadChannel;
 
         private DataGridView _urls;
-
-        private string _gallery_dlArgs = "-e ErrorLog.txt -d C:\\Users\\santi\\Downloads\\gallery-dl";
 
         private StatusStrip _statusStrip;
         private ToolStripStatusLabel _statusLabel;
         private ToolStripProgressBar _statusBar;
 
         MiniPanel UrlPnl;
+        MiniPanel GalleryDLArguments;
 
         private void Main_Load(object sender, EventArgs e)
         {
@@ -1106,6 +1343,7 @@ namespace Mari_Downloads
         private void Main_FormClosing(object sender, FormClosingEventArgs e)
         {
             Properties.Settings.Default.Save();
+            Filter.Saver.Save("filters.json");
         }
     }
 }

@@ -109,7 +109,7 @@ namespace Mari_Downloads.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("0")]
+        [global::System.Configuration.DefaultSettingValueAttribute("4")]
         public string Retries {
             get {
                 return ((string)(this["Retries"]));
@@ -121,7 +121,7 @@ namespace Mari_Downloads.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("")]
+        [global::System.Configuration.DefaultSettingValueAttribute("1")]
         public string Sleep {
             get {
                 return ((string)(this["Sleep"]));
@@ -145,7 +145,7 @@ namespace Mari_Downloads.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("")]
+        [global::System.Configuration.DefaultSettingValueAttribute("best")]
         public string YTResolution {
             get {
                 return ((string)(this["YTResolution"]));
@@ -157,7 +157,7 @@ namespace Mari_Downloads.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("")]
+        [global::System.Configuration.DefaultSettingValueAttribute("mp4")]
         public string YTFormat {
             get {
                 return ((string)(this["YTFormat"]));
@@ -181,7 +181,7 @@ namespace Mari_Downloads.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("")]
+        [global::System.Configuration.DefaultSettingValueAttribute("mp3")]
         public string YTAuFormat {
             get {
                 return ((string)(this["YTAuFormat"]));
