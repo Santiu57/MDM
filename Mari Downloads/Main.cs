@@ -5,6 +5,7 @@ using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
 using System.Data;
 using System.Diagnostics;
+using System.DirectoryServices.ActiveDirectory;
 using System.Drawing;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
@@ -46,7 +47,11 @@ namespace Mari_Downloads
 
             //Panels Loaders
             UrlPnl = UrlsPanel();
-            GalleryDLArguments = GDLArguments();
+            AppConfiguration = AppConfig();
+            AppPersonalization = AppPersonalizationBuild();
+            AppDependencies = AppDependenciesBuild();
+            NotificationsConfig = NotificationsConfigBuilder();
+            Arguments = Args_GDL();
 
             //Filters Loader
             Filter.Loader.Load("filters.json");
@@ -80,6 +85,7 @@ namespace Mari_Downloads
             private readonly Panel _contentPanel;
             private readonly FlowLayoutPanel _downPanel;
             private readonly FlowLayoutPanel _upPanel;
+            private readonly FlowLayoutPanel _rowsContainer;
 
             public Panel ContentPanel => _contentPanel;
 
@@ -112,10 +118,20 @@ namespace Mari_Downloads
                 _upPanel = new FlowLayoutPanel
                 {
                     Dock = DockStyle.Top,
-                    FlowDirection = FlowDirection.RightToLeft,
+                    FlowDirection = FlowDirection.LeftToRight,
                     Height = 45,
                     Padding = new Padding(5)
                 };
+
+                _rowsContainer = new FlowLayoutPanel
+                {
+                    Dock = DockStyle.Top,
+                    FlowDirection = FlowDirection.TopDown,
+                    WrapContents = false,
+                    AutoSize = true
+                };
+
+                _contentPanel.Controls.Add(_rowsContainer);
 
                 Controls.Add(_contentPanel);
 
@@ -165,22 +181,23 @@ namespace Mari_Downloads
                 {
                     row.Controls.Add(control);
                 }
-                _downPanel.Controls.Add(row);
+                _upPanel.Controls.Add(row);
             }
 
-            public void AddRow(List<Control> controls)
+            public void AddRow(Control[] controls)
             {
                 var row = new FlowLayoutPanel
                 {
                     AutoSize = true,
                     FlowDirection = FlowDirection.LeftToRight,
-                    WrapContents = false
+                    WrapContents = false,
+                    Margin = new Padding(0, 0, 0, 10)
                 };
+
                 foreach (Control control in controls)
-                {
                     row.Controls.Add(control);
-                }
-                _contentPanel.Controls.Add(row);
+
+                _rowsContainer.Controls.Add(row);
             }
 
             public void FontAndColorMini()
@@ -353,6 +370,42 @@ namespace Mari_Downloads
             this.ShowIcon = true;
             this.Icon = new Icon("media/icon.ico");
             this.Text = "(ᓀ‸ᓂ)";
+        }
+        private void ApplyRowColor(DataGridViewRow row, string status)
+        {
+            Color back = Properties.Settings.Default.MainBackColor;
+            Color fore = Properties.Settings.Default.MainForeColor;
+
+            switch (status)
+            {
+                case "Sleeping":
+                    back = Properties.Settings.Default.ColorSleepingBack;
+                    fore = Properties.Settings.Default.ColorSleepingFore;
+                    break;
+
+                case "Queued":
+                    back = Properties.Settings.Default.ColorQueuedBack;
+                    fore = Properties.Settings.Default.ColorQueuedFore;
+                    break;
+
+                case "Downloading":
+                    back = Properties.Settings.Default.ColorDownloadingBack;
+                    fore = Properties.Settings.Default.ColorDownloadingFore;
+                    break;
+
+                case "Done":
+                    back = Properties.Settings.Default.ColorDoneBack;
+                    fore = Properties.Settings.Default.ColorDoneFore;
+                    break;
+
+                case "Error":
+                    back = Properties.Settings.Default.ColorErrorBack;
+                    fore = Properties.Settings.Default.ColorErrorFore;
+                    break;
+            }
+
+            row.DefaultCellStyle.BackColor = back;
+            row.DefaultCellStyle.ForeColor = fore;
         }
 
         public static class Notifications
@@ -923,7 +976,7 @@ namespace Mari_Downloads
                     {
                         if (!_siteSemaphores.ContainsKey(site))
                         {
-                            int limit = _limits.ContainsKey(site) ? _limits[site] : 3;
+                            int limit = _limits.ContainsKey(site) ? _limits[site] : 2;
                             _siteSemaphores[site] = new SemaphoreSlim(limit);
                         }
 
@@ -962,16 +1015,48 @@ namespace Mari_Downloads
             url.status.Change(Manager.Status.StatusType.Pending);
 
             int index = _urls.Rows.Add(url.status.GetDisplay(), url.site, url.url);
+
+            var row = _urls.Rows[index];
+
+            ApplyRowColor(row, url.status.GetDisplay());
         }
         private void UpdateRowStatus(DataGridViewRow row, string status)
         {
             if (InvokeRequired)
             {
-                Invoke(() => row.Cells["Status"].Value = status);
+                Invoke(() => UpdateRowStatus(row, status));
                 return;
             }
 
             row.Cells["Status"].Value = status;
+
+            ApplyRowColor(row, status);
+
+            if (status == "Done")
+            {
+                int eraseDelay = Properties.Settings.Default.EraseDone;
+
+                if (eraseDelay != -1)
+                {
+                    Task.Run(async () =>
+                    {
+                        await Task.Delay(eraseDelay * 1000);
+
+                        try
+                        {
+                            if (row.DataGridView != null)
+                            {
+                                Invoke(() =>
+                                {
+                                    if (!row.IsNewRow && row.DataGridView != null)
+                                        row.DataGridView.Rows.Remove(row);
+                                });
+                            }
+                        }
+                        catch { }
+                    });
+                }
+            }
         }
         private int[] UrlCount()
         {
@@ -1045,10 +1130,15 @@ namespace Mari_Downloads
                 {
                     _pauseEvent.Wait();
 
-                    await _semaphore.WaitAsync(_cts.Token);
+                    SemaphoreSlim currentSemaphore;
+                    lock (_semaphoreLock)
+                    {
+                        currentSemaphore = _semaphore;
+                    }
+
+                    await currentSemaphore.WaitAsync(_cts.Token);
 
                     var siteSemaphore = Manager.SiteRateLimiter.Get(job.url.site);
-
                     await siteSemaphore.WaitAsync();
 
                     try
@@ -1070,13 +1160,11 @@ namespace Mari_Downloads
                     finally
                     {
                         siteSemaphore.Release();
-                        _semaphore.Release();
+                        currentSemaphore.Release();
                     }
                 }
             }
-            catch (OperationCanceledException)
-            {
-            }
+            catch (OperationCanceledException) { }
         }
         private void StopDownloads()
         {
@@ -1127,8 +1215,10 @@ namespace Mari_Downloads
             }
             else if (diff < 0)
             {
+                PauseDownloads();
                 for (int i = 0; i < -diff; i++)
-                    _semaphore.Wait();
+                    _semaphore.WaitAsync();
+                ResumeDownloads();
             }
 
             _maxDownloads = newValue;
@@ -1136,6 +1226,197 @@ namespace Mari_Downloads
             Properties.Settings.Default.SimultaneousDownloads = newValue;
             Properties.Settings.Default.Save();
         }
+        public string[] CheckDlUpdates()
+        {
+            string galleryInstalled = null;
+            string galleryLatest = null;
+            string ytdlpInstalled = null;
+            string ytdlpLatest = null;
+
+            try
+            {
+                galleryInstalled = GetInstalledVersion("gallery-dl", "--version");
+                galleryLatest = GetLatestPipVersion("gallery-dl");
+
+                ytdlpInstalled = GetInstalledVersion("yt-dlp", "--version");
+                ytdlpLatest = GetLatestPipVersion("yt-dlp");
+            }
+            catch
+            {
+
+            }
+
+            return new string[]
+            {
+                galleryInstalled,
+                galleryLatest,
+                ytdlpInstalled,
+                ytdlpLatest
+            };
+        }
+
+        private string GetInstalledVersion(string exe, string args)
+        {
+            var info = new ProcessStartInfo()
+            {
+                FileName = exe,
+                Arguments = args,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                CreateNoWindow = true
+            };
+
+            using (var process = new Process())
+            {
+                process.StartInfo = info;
+                process.Start();
+
+                string output = process.StandardOutput.ReadToEnd();
+
+                var match = Regex.Match(output, @"\d+\.\d+\.\d+");
+                if (match.Success)
+                    return match.Value;
+            }
+
+            return null;
+        }
+
+        private string GetLatestPipVersion(string package)
+        {
+            var info = new ProcessStartInfo()
+            {
+                FileName = "py",
+                Arguments = $"-m pip index versions {package}",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                CreateNoWindow = true
+            };
+
+            using (var process = new Process())
+            {
+                process.StartInfo = info;
+                process.Start();
+
+                string output = process.StandardOutput.ReadToEnd();
+
+                var match = Regex.Match(output, @"LATEST:\s+(\d+\.\d+\.\d+)");
+                if (match.Success)
+                    return match.Groups[1].Value;
+            }
+
+            return null;
+        }
+        public static bool InstallPackage(string package)
+        {
+            try
+            {
+                var info = new ProcessStartInfo()
+                {
+                    FileName = "py",
+                    Arguments = $"-m pip install {package}",
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true
+                };
+
+                using (var process = new Process())
+                {
+                    process.StartInfo = info;
+                    process.Start();
+
+                    process.WaitForExit();
+
+                    return process.ExitCode == 0;
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+        public static bool UpdatePackage(string package)
+        {
+            try
+            {
+                var info = new ProcessStartInfo()
+                {
+                    FileName = "py",
+                    Arguments = $"-m pip install --upgrade {package}",
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true
+                };
+
+                using (var process = new Process())
+                {
+                    process.StartInfo = info;
+                    process.Start();
+
+                    process.WaitForExit();
+
+                    return process.ExitCode == 0;
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private void DependenciesCheck()
+        {
+            var GDLstate = FindControl<Label>(AppDependencies, l => l.Name == "GDLState");
+            var YTstate = FindControl<Label>(AppDependencies, l => l.Name == "YTState");
+
+
+            if (_galleryInstalled != null && _galleryLatest != null)
+            {
+                if (new Version(_galleryInstalled) < new Version(_galleryLatest))
+                {
+                    Notifications.Show(
+                        "Update Available",
+                        $"gallery-dl update available\nInstalled: {_galleryInstalled}\nLatest: {_galleryLatest}"
+                    );
+                    GDLstate.Text = $"{_galleryInstalled}: Outdated. {_galleryLatest}: Lastest";
+                    GDLstate.ForeColor = Color.Red;
+                }
+                else
+                {
+                    GDLstate.Text = $"{_galleryInstalled}: Lastest ✓";
+                    GDLstate.ForeColor = Color.Green;
+                }
+            }
+            if (_ytdlpInstalled != null && _ytdlpLatest != null)
+            {
+                if (new Version(_ytdlpInstalled) < new Version(_ytdlpLatest))
+                {
+                    Notifications.Show(
+                        "Update Available",
+                        $"YT-dlp update available\nInstalled: {_ytdlpInstalled}\nLatest: {_ytdlpLatest}"
+                    );
+                    YTstate.Text = $"{_ytdlpInstalled}: Outdated  {_ytdlpLatest}: Lastest";
+                    YTstate.ForeColor = Color.Red;
+                }
+                else
+                {
+                    YTstate.Text = $"{_ytdlpInstalled}: Lastest ✓";
+                    YTstate.ForeColor = Color.Green;
+                }
+            }
+        }
+
+        private async void GetDependenciesVersions()
+        {
+            var versions = await Task.Run(() => CheckDlUpdates());
+
+            _galleryInstalled = versions[0];
+            _galleryLatest = versions[1];
+            _ytdlpInstalled = versions[2];
+            _ytdlpLatest = versions[3];
+        }
+
         private void BaseComponents()
         {
             ToolStrip tools = new ToolStrip
@@ -1149,29 +1430,30 @@ namespace Mari_Downloads
             };
             UrlsShow.Click += (sender, e) => { MiniPanelManager.Show(UrlPnl); };
 
-            ToolStripButton gdlArgs = new ToolStripButton
+            ToolStripButton Config = new ToolStripButton
             {
-                Image = Image.FromFile("media/icon.png")
+                Image = Image.FromFile("media/icon.png"),
+                Alignment = ToolStripItemAlignment.Right
             };
-            gdlArgs.Click += (sender, e) => { MiniPanelManager.Show(GalleryDLArguments); };
+            Config.Click += (sender, e) => { MiniPanelManager.Show(AppConfiguration); };
+
+            ToolStripButton Args = new ToolStripButton
+            {
+                Image = Image.FromFile("media/icon.png"),
+                Alignment = ToolStripItemAlignment.Left
+            };
+            Args.Click += (sender, e) => { MiniPanelManager.Show(Arguments); };
 
             tools.Items.Add(UrlsShow);
-            tools.Items.Add(gdlArgs);
+            tools.Items.Add(Args);
+            tools.Items.Add(Config);
 
             _statusStrip = new StatusStrip { Name = "StatusStrip" };
 
             _statusLabel = new ToolStripStatusLabel
             {
                 Name = "Status",
-                Text = "Sleeping"
-            };
-
-            _statusBar = new ToolStripProgressBar
-            {
-                Name = "Progress",
-                Minimum = 0,
-                Maximum = 100,
-                Value = 0
+                Text = "Sleeping..."
             };
 
             SharpClipboard clipboard = new SharpClipboard();
@@ -1190,7 +1472,6 @@ namespace Mari_Downloads
                 }
             };
 
-            _statusStrip.Items.Add(_statusBar);
             _statusStrip.Items.Add(_statusLabel);
 
             this.Controls.Add(tools);
@@ -1270,9 +1551,129 @@ namespace Mari_Downloads
             return urlpnl;
         }
 
-        private MiniPanel GDLArguments()
+        private void ConfigNav(MiniPanel reference)
         {
-            MiniPanel gdlArguments = new MiniPanel();
+            Button AppC = new Button { Size = new Size(170, 35), Text = "App Configuration", TextAlign = ContentAlignment.MiddleCenter };
+            AppC.Click += (s, e) => { MiniPanelManager.Show(AppConfiguration); };
+
+            Button AppP = new Button { Size = new Size(170, 35), Text = "App Personalization", TextAlign = ContentAlignment.MiddleCenter };
+            AppP.Click += (s, e) => { MiniPanelManager.Show(AppPersonalization); };
+
+            Button AppD = new Button { Size = new Size(170, 35), Text = "App Dependencies", TextAlign = ContentAlignment.MiddleCenter };
+            AppD.Click += (s, e) => { MiniPanelManager.Show(AppDependencies); };
+
+            Button Notifs = new Button { Size = new Size(170, 35), Text = "Notifications", TextAlign = ContentAlignment.MiddleCenter };
+            Notifs.Click += (s, e) => { MiniPanelManager.Show(NotificationsConfig); };
+
+            Control[] up = { AppC, AppP, AppD, Notifs };
+            reference.AddUpControls(up);
+
+            Control[] space = { new Label() };
+            reference.AddRow(space);
+        }
+
+        private MiniPanel AppConfig()
+        {
+            MiniPanel AppConfig = new MiniPanel(false,true);
+
+            ConfigNav(AppConfig);
+
+            NumericUpDown SDNud = new NumericUpDown { Minimum = 1, Maximum = 20, Value = Properties.Settings.Default.SimultaneousDownloads, Width = 80 };
+            SDNud.ValueChanged += (s, e) =>
+            {
+                ChangeSimultaneousDownloads((int)SDNud.Value);
+            };
+            Control[] SDownloads = { new Label { Text = "Simultaneous Downloads", Size = new Size(200, 35), TextAlign = ContentAlignment.MiddleCenter }, SDNud};
+
+            NumericUpDown AutoDeleteDone = new NumericUpDown { Minimum = -1, Maximum = 1000, Value = Properties.Settings.Default.EraseDone, Width = 80 };
+            AutoDeleteDone.ValueChanged += (s, e) =>
+            {
+                Properties.Settings.Default.EraseDone = (int)AutoDeleteDone.Value;
+                Properties.Settings.Default.Save();
+            };
+            Control[] AutoDelete = { new Label { Text = "Auto Delete Done Downloads After", Size = new Size(250, 35), TextAlign = ContentAlignment.MiddleCenter }, AutoDeleteDone, 
+                new Label { Text = "Seconds (-1 To never)", TextAlign = ContentAlignment.MiddleCenter, Size = new Size(160, 35) } };
+
+            AppConfig.AddRow(SDownloads);
+            AppConfig.AddRow(AutoDelete);
+
+            return AppConfig;
+        }
+        private MiniPanel AppDependenciesBuild()
+        {
+            MiniPanel AppDependencies = new MiniPanel(false, true);
+
+            ConfigNav(AppDependencies);
+
+            Control[] Gallery_dl = { new Label { Text = "Gallery-Dl:", Size = new Size(100, 35), TextAlign = ContentAlignment.MiddleCenter } };
+            Label GDLstate = new Label { Size = new Size(150, 35), TextAlign = ContentAlignment.MiddleCenter, Text = "Obtaining...", Name = "GDLState" };
+
+            Control[] GDL_info = { new Label { Text = "Current Version: ", Size = new Size(140, 35), TextAlign = ContentAlignment.MiddleCenter }, GDLstate };
+
+            Button GDL_install = new Button { Text = "Install Gallery-Dl", Size = new Size(140, 35), TextAlign = ContentAlignment.MiddleCenter };
+            GDL_install.Click += async (s, e) =>
+            {
+                if (await Task.Run(() => InstallPackage("gallery-dl")))
+                {
+                    GetDependenciesVersions();
+                    DependenciesCheck();
+                    Notifications.Show("Gallery-dl Installed", "Gallery-dl Installed Succesfully");
+                }
+            };
+            Button GDL_Update = new Button { Text = "Update Gallery-Dl", Size = new Size(140, 35), TextAlign = ContentAlignment.MiddleCenter };
+            GDL_install.Click += async (s, e) =>
+            {
+                if (await Task.Run(() => UpdatePackage("gallery-dl")))
+                {
+                    GetDependenciesVersions();
+                    DependenciesCheck();
+                    Notifications.Show("Gallery-dl Updated", "Gallery-dl Updated Succesfully");
+                }
+            };
+            Control[] GDL_Btns = { GDL_install,GDL_Update };
+
+            Control[] YT_dlp = { new Label { Text = "YT-dlp:", Size = new Size(100, 35), TextAlign = ContentAlignment.MiddleCenter } };
+            Label YTState = new Label { Size = new Size(150, 35), TextAlign = ContentAlignment.MiddleCenter, Text = "Obtaining...", Name = "YTState" };
+
+            Control[] YT_info = { new Label { Text = "Current Version: ", Size = new Size(140, 35), TextAlign = ContentAlignment.MiddleCenter }, YTState };
+
+            Button YT_install = new Button { Text = "Install YT-dlp", Size = new Size(140, 35), TextAlign = ContentAlignment.MiddleCenter };
+            YT_install.Click += async (s, e) =>
+            {
+                if (await Task.Run(() => InstallPackage("yt-dlp")))
+                {
+                    GetDependenciesVersions();
+                    DependenciesCheck();
+                    Notifications.Show("YT-dlp Installed", "YT-dlp Installed Succesfully");
+                }
+            };
+            Button YT_Update = new Button { Text = "Update YT-dlp", Size = new Size(140, 35), TextAlign = ContentAlignment.MiddleCenter };
+            YT_Update.Click += async (s, e) =>
+            {
+                if (await Task.Run(() => UpdatePackage("yt-dlp")))
+                {
+                    GetDependenciesVersions();
+                    DependenciesCheck();
+                    Notifications.Show("YT-dlp Updated", "YT-dlp Updated Succesfully");
+                }
+            };
+            Control[] YT_Btns = { YT_install, YT_Update };
+
+            AppDependencies.AddRow(Gallery_dl);
+            AppDependencies.AddRow(GDL_info);
+            AppDependencies.AddRow(GDL_Btns);
+            AppDependencies.AddRow(YT_dlp);
+            AppDependencies.AddRow(YT_info);
+            AppDependencies.AddRow(YT_Btns);
+
+            return AppDependencies;
+        }
+
+        private MiniPanel NotificationsConfigBuilder()
+        {
+            MiniPanel NotificationsConfig = new MiniPanel(false, true);
+
+            ConfigNav(NotificationsConfig);
 
             NumericUpDown SDNud = new NumericUpDown { Minimum = 1, Maximum = 20, Value = Properties.Settings.Default.SimultaneousDownloads, Width = 80 };
             SDNud.ValueChanged += (s, e) =>
@@ -1280,14 +1681,62 @@ namespace Mari_Downloads
                 ChangeSimultaneousDownloads((int)SDNud.Value);
             };
 
-            List<Control> SDownloads = new List<Control> 
-            { new Label { Text = "Simultaneous Downloads", Size = new Size(100,35), TextAlign = ContentAlignment.MiddleCenter }, SDNud};
+            Control[] SDownloads = { new Label { Text = "d Downloads", Size = new Size(100, 35), TextAlign = ContentAlignment.MiddleCenter }, SDNud };
 
+            NotificationsConfig.AddRow(SDownloads);
 
-            gdlArguments.AddRow(SDownloads);
-
-            return gdlArguments;
+            return NotificationsConfig;
         }
+
+        private void ArgsNav(MiniPanel reference)
+        {
+            Button gdl = new Button { Size = new Size(170, 35), Text = "Gallery-DL Arguments", TextAlign = ContentAlignment.MiddleCenter };
+            gdl.Click += (s, e) => { MiniPanelManager.Show(Arguments); };
+
+            Button ytdlp = new Button { Size = new Size(170, 35), Text = "YT-dlp Arguments", TextAlign = ContentAlignment.MiddleCenter };
+            ytdlp.Click += (s, e) => { MiniPanelManager.Show(AppPersonalization); };
+
+            Button alias = new Button { Size = new Size(170, 35), Text = "Alias Override", TextAlign = ContentAlignment.MiddleCenter };
+            alias.Click += (s, e) => { MiniPanelManager.Show(AppPersonalization); };
+
+            Button ratelimiter = new Button { Size = new Size(170, 35), Text = "Rate Limiter", TextAlign = ContentAlignment.MiddleCenter };
+            ratelimiter.Click += (s, e) => { MiniPanelManager.Show(NotificationsConfig); };
+
+            Control[] up = { gdl, ytdlp, alias, ratelimiter };
+            reference.AddUpControls(up);
+
+            Control[] space = { new Label() };
+            reference.AddRow(space);
+        }
+
+        private MiniPanel Args_GDL()
+        {
+            MiniPanel Args_GDL = new MiniPanel(false, true);
+
+            ArgsNav(Args_GDL);
+
+            return Args_GDL;
+        }
+        private MiniPanel AppPersonalizationBuild()
+        {
+            MiniPanel AppCustom = new MiniPanel(false, true);
+
+            ConfigNav(AppCustom);
+
+            NumericUpDown SDNud = new NumericUpDown { Minimum = 1, Maximum = 20, Value = Properties.Settings.Default.SimultaneousDownloads, Width = 80 };
+            SDNud.ValueChanged += (s, e) =>
+            {
+                ChangeSimultaneousDownloads((int)SDNud.Value);
+            };
+
+            Control[] SDownloads = { new Label { Text = "b Downloads", Size = new Size(100, 35), TextAlign = ContentAlignment.MiddleCenter }, SDNud };
+
+            AppCustom.AddRow(SDownloads);
+
+            return AppCustom;
+        }
+
+        
 
         public static T FindControl<T>(Control parent, Func<T, bool> predicate) where T : class
         {
@@ -1321,6 +1770,7 @@ namespace Mari_Downloads
         }
 
         private SemaphoreSlim _semaphore;
+        private readonly object _semaphoreLock = new();
         private int _maxDownloads;
         private CancellationTokenSource _cts = new();
         private ManualResetEventSlim _pauseEvent = new(true);
@@ -1330,14 +1780,23 @@ namespace Mari_Downloads
 
         private StatusStrip _statusStrip;
         private ToolStripStatusLabel _statusLabel;
-        private ToolStripProgressBar _statusBar;
+
+        private string _galleryInstalled;
+        string _galleryLatest;
+        string _ytdlpInstalled;
+        string _ytdlpLatest;
 
         MiniPanel UrlPnl;
-        MiniPanel GalleryDLArguments;
+        MiniPanel AppConfiguration;
+        MiniPanel AppPersonalization;
+        MiniPanel AppDependencies;
+        MiniPanel NotificationsConfig;
+        MiniPanel Arguments;
 
-        private void Main_Load(object sender, EventArgs e)
+        private async void Main_Load(object sender, EventArgs e)
         {
-
+            GetDependenciesVersions();
+            DependenciesCheck();
         }
 
         private void Main_FormClosing(object sender, FormClosingEventArgs e)

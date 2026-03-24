@@ -190,5 +190,137 @@ namespace Mari_Downloads.Properties {
                 this["YTAuFormat"] = value;
             }
         }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("DarkBlue")]
+        public global::System.Drawing.Color ColorSleepingBack {
+            get {
+                return ((global::System.Drawing.Color)(this["ColorSleepingBack"]));
+            }
+            set {
+                this["ColorSleepingBack"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("White")]
+        public global::System.Drawing.Color ColorSleepingFore {
+            get {
+                return ((global::System.Drawing.Color)(this["ColorSleepingFore"]));
+            }
+            set {
+                this["ColorSleepingFore"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("Blue")]
+        public global::System.Drawing.Color ColorQueuedBack {
+            get {
+                return ((global::System.Drawing.Color)(this["ColorQueuedBack"]));
+            }
+            set {
+                this["ColorQueuedBack"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("White")]
+        public global::System.Drawing.Color ColorQueuedFore {
+            get {
+                return ((global::System.Drawing.Color)(this["ColorQueuedFore"]));
+            }
+            set {
+                this["ColorQueuedFore"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("Yellow")]
+        public global::System.Drawing.Color ColorDownloadingBack {
+            get {
+                return ((global::System.Drawing.Color)(this["ColorDownloadingBack"]));
+            }
+            set {
+                this["ColorDownloadingBack"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("Black")]
+        public global::System.Drawing.Color ColorDownloadingFore {
+            get {
+                return ((global::System.Drawing.Color)(this["ColorDownloadingFore"]));
+            }
+            set {
+                this["ColorDownloadingFore"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("Green")]
+        public global::System.Drawing.Color ColorDoneBack {
+            get {
+                return ((global::System.Drawing.Color)(this["ColorDoneBack"]));
+            }
+            set {
+                this["ColorDoneBack"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("Black")]
+        public global::System.Drawing.Color ColorDoneFore {
+            get {
+                return ((global::System.Drawing.Color)(this["ColorDoneFore"]));
+            }
+            set {
+                this["ColorDoneFore"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("Red")]
+        public global::System.Drawing.Color ColorErrorBack {
+            get {
+                return ((global::System.Drawing.Color)(this["ColorErrorBack"]));
+            }
+            set {
+                this["ColorErrorBack"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("Black")]
+        public global::System.Drawing.Color ColorErrorFore {
+            get {
+                return ((global::System.Drawing.Color)(this["ColorErrorFore"]));
+            }
+            set {
+                this["ColorErrorFore"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("-1")]
+        public int EraseDone {
+            get {
+                return ((int)(this["EraseDone"]));
+            }
+            set {
+                this["EraseDone"] = value;
+            }
+        }
     }
 }
