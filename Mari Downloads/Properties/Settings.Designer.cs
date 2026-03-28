@@ -322,5 +322,161 @@ namespace Mari_Downloads.Properties {
                 this["EraseDone"] = value;
             }
         }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("mp4")]
+        public string Uigora {
+            get {
+                return ((string)(this["Uigora"]));
+            }
+            set {
+                this["Uigora"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("")]
+        public string Filename {
+            get {
+                return ((string)(this["Filename"]));
+            }
+            set {
+                this["Filename"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("4")]
+        public string YTRetries {
+            get {
+                return ((string)(this["YTRetries"]));
+            }
+            set {
+                this["YTRetries"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("1")]
+        public string YTSleep {
+            get {
+                return ((string)(this["YTSleep"]));
+            }
+            set {
+                this["YTSleep"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("")]
+        public string YTCookies {
+            get {
+                return ((string)(this["YTCookies"]));
+            }
+            set {
+                this["YTCookies"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("")]
+        public string Cookies {
+            get {
+                return ((string)(this["Cookies"]));
+            }
+            set {
+                this["Cookies"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("")]
+        public string ExtraArgs {
+            get {
+                return ((string)(this["ExtraArgs"]));
+            }
+            set {
+                this["ExtraArgs"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("")]
+        public string YTExtraArgs {
+            get {
+                return ((string)(this["YTExtraArgs"]));
+            }
+            set {
+                this["YTExtraArgs"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("")]
+        public string Range {
+            get {
+                return ((string)(this["Range"]));
+            }
+            set {
+                this["Range"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("")]
+        public string ffmpeg {
+            get {
+                return ((string)(this["ffmpeg"]));
+            }
+            set {
+                this["ffmpeg"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("ejs:github")]
+        public string YTRemoteComponents {
+            get {
+                return ((string)(this["YTRemoteComponents"]));
+            }
+            set {
+                this["YTRemoteComponents"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("")]
+        public string Playlist {
+            get {
+                return ((string)(this["Playlist"]));
+            }
+            set {
+                this["Playlist"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("")]
+        public string YTConfigPath {
+            get {
+                return ((string)(this["YTConfigPath"]));
+            }
+            set {
+                this["YTConfigPath"] = value;
+            }
+        }
     }
 }
