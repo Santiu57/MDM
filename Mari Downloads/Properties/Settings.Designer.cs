@@ -478,5 +478,125 @@ namespace Mari_Downloads.Properties {
                 this["YTConfigPath"] = value;
             }
         }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("True")]
+        public bool ExportDone {
+            get {
+                return ((bool)(this["ExportDone"]));
+            }
+            set {
+                this["ExportDone"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("True")]
+        public bool ExportSleeping {
+            get {
+                return ((bool)(this["ExportSleeping"]));
+            }
+            set {
+                this["ExportSleeping"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("True")]
+        public bool ExportQueued {
+            get {
+                return ((bool)(this["ExportQueued"]));
+            }
+            set {
+                this["ExportQueued"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("True")]
+        public bool ExportErrors {
+            get {
+                return ((bool)(this["ExportErrors"]));
+            }
+            set {
+                this["ExportErrors"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("True")]
+        public bool ExportDownloading {
+            get {
+                return ((bool)(this["ExportDownloading"]));
+            }
+            set {
+                this["ExportDownloading"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("True")]
+        public bool ClearDone {
+            get {
+                return ((bool)(this["ClearDone"]));
+            }
+            set {
+                this["ClearDone"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("True")]
+        public bool ClearSleeping {
+            get {
+                return ((bool)(this["ClearSleeping"]));
+            }
+            set {
+                this["ClearSleeping"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("True")]
+        public bool ClearErrors {
+            get {
+                return ((bool)(this["ClearErrors"]));
+            }
+            set {
+                this["ClearErrors"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("True")]
+        public bool ClearQueued {
+            get {
+                return ((bool)(this["ClearQueued"]));
+            }
+            set {
+                this["ClearQueued"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("True")]
+        public bool ClearDownloading {
+            get {
+                return ((bool)(this["ClearDownloading"]));
+            }
+            set {
+                this["ClearDownloading"] = value;
+            }
+        }
     }
 }

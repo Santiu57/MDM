@@ -33,19 +33,32 @@ namespace Mari_Downloads
 
                 Application.OpenForms?[0]?.Invoke(new Action(() =>
                 {
-                    if (args.Contains("action"))
+                    var window = Application.OpenForms[0];
+
+                    if (window?.WindowState == FormWindowState.Minimized)
+                        window.WindowState = FormWindowState.Normal;
+
+                    window?.Activate();
+                    window?.Focus();
+
+                    if (args.Contains("action") && args["action"] == "export")
                     {
-                        string value = args["action"];
+                        string path = args["path"];
 
-                        var window = Application.OpenForms[0];
-                        if (window?.WindowState == FormWindowState.Minimized)
-                            window.WindowState = FormWindowState.Normal;
-
-                        window?.Activate();
-                        window?.Focus();
+                        if (File.Exists(path))
+                        {
+                            Process.Start(new ProcessStartInfo
+                            {
+                                FileName = "explorer.exe",
+                                Arguments = $"/select,\"{path}\"",
+                                UseShellExecute = true
+                            });
+                        }
                     }
                 }));
             };
+
+            MiniPanelManager.SetHost(this);
 
             //Filters Loader
             Filter.Loader.Load("filters.json");
@@ -64,12 +77,12 @@ namespace Mari_Downloads
             Arguments_YTDL = Args_YTDL();
             Alias_Override = Alias();
             Rate_Limiter = Rate();
+            YtSites_Panel = YtSitesPanel();
 
             InitializeComponent();
             BaseComponents();
             SetImages();
             SetWindowConfig();
-            MiniPanelManager.SetHost(this);
             MiniPanelManager.Show(UrlPnl);
             AppCustomization.FontChange(this, Properties.Settings.Default.MainFont);
             AppCustomization.ColorComponents(this, Properties.Settings.Default.MainBackColor, Properties.Settings.Default.MainForeColor);
@@ -129,7 +142,8 @@ namespace Mari_Downloads
                     Dock = DockStyle.Top,
                     FlowDirection = FlowDirection.LeftToRight,
                     Height = 45,
-                    Padding = new Padding(5)
+                    Padding = new Padding(5),
+                    AutoScroll = true
                 };
 
                 _rowsContainer = new FlowLayoutPanel
@@ -208,12 +222,6 @@ namespace Mari_Downloads
 
                 _rowsContainer.Controls.Add(row);
             }
-
-            public void FontAndColorMini()
-            {
-                AppCustomization.FontChange(this, Properties.Settings.Default.MainFont);
-                AppCustomization.ColorComponents(this, Properties.Settings.Default.MainBackColor, Properties.Settings.Default.MainForeColor);
-            }
         }
 
         //Panels Manager
@@ -224,7 +232,7 @@ namespace Mari_Downloads
 
             private static MiniPanel _current;
 
-            private static Control _host;
+            public static Control _host;
 
             public static MiniPanel Current => _current;
 
@@ -282,6 +290,88 @@ namespace Mari_Downloads
             }
         }
 
+        public class MiniMenuPanel
+        {
+            private readonly FlowLayoutPanel Menu;
+            private readonly Control Anchor;
+            private readonly FlowLayoutPanel _rowsContainer; 
+
+            public MiniMenuPanel(Control anchor)
+            {
+                Anchor = anchor;
+                Menu = new FlowLayoutPanel
+                {
+                    FlowDirection = FlowDirection.TopDown,
+                    WrapContents = true,
+                    BorderStyle = BorderStyle.FixedSingle,
+                    AutoSize = true,
+                    AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                    Visible = false
+                };
+
+                _rowsContainer = new FlowLayoutPanel
+                {
+                    Dock = DockStyle.Top,
+                    FlowDirection = FlowDirection.TopDown,
+                    WrapContents = false,
+                    AutoSize = true
+                };
+
+                Menu.Controls.Add(_rowsContainer);
+
+                Anchor.MouseUp += (s, e) =>
+                {
+                    if (e.Button == MouseButtons.Right)
+                    {
+                        Menu.Visible = !Menu.Visible;
+                        UpdateMenuPosition();
+                    }
+                };
+
+                Anchor.ParentChanged += Anchor_ParentChanged;
+                Anchor.LocationChanged += (s, e) => UpdateMenuPosition();
+                Anchor.SizeChanged += (s, e) => UpdateMenuPosition();
+                Menu.SizeChanged += (s, e) => UpdateMenuPosition();
+            }
+
+            private void Anchor_ParentChanged(object sender, EventArgs e)
+            {
+                Control host = MiniPanelManager._host ?? Anchor.FindForm();
+
+                // Menu se agrega al host principal
+                if (!host.Controls.Contains(Menu))
+                    host.Controls.Add(Menu);
+
+                UpdateMenuPosition();
+
+                Menu.BringToFront();
+            }
+
+            private void UpdateMenuPosition()
+            {
+                Menu.BringToFront();
+                if (Anchor.Parent == null || Menu.Parent == null) return;
+                Point screen = Anchor.PointToScreen(Point.Empty);
+                Point client = Menu.Parent.PointToClient(screen);
+                Menu.Location = new Point((client.X + (Anchor.Size.Width / 2)) - (Menu.Size.Width / 2), (client.Y - 3) - Menu.Size.Height);
+            }
+            public void AddRow(Control[] controls)
+            {
+                var row = new FlowLayoutPanel
+                {
+                    AutoSize = true,
+                    FlowDirection = FlowDirection.LeftToRight,
+                    WrapContents = false,
+                    Margin = new Padding(0, 0, 0, 10)
+                };
+
+                foreach (Control control in controls)
+                    row.Controls.Add(control);
+
+                _rowsContainer.Controls.Add(row);
+            }
+        }
+        
         //Customization
         public static class AppCustomization
         {
@@ -422,7 +512,7 @@ namespace Mari_Downloads
             row.DefaultCellStyle.SelectionBackColor = GetSelectionColor(back);
             row.DefaultCellStyle.SelectionForeColor = fore;
         }
-        Color AdjustColor(Color c, int amount)
+        private static Color AdjustColor(Color c, int amount)
         {
             int r = Math.Clamp(c.R + amount, 0, 255);
             int g = Math.Clamp(c.G + amount, 0, 255);
@@ -430,7 +520,8 @@ namespace Mari_Downloads
 
             return Color.FromArgb(r, g, b);
         }
-        Color GetSelectionColor(Color back)
+
+        private static Color GetSelectionColor(Color back)
         {
             int brightness = (back.R * 299 + back.G * 587 + back.B * 114) / 1000;
 
@@ -442,25 +533,41 @@ namespace Mari_Downloads
 
         public static class Notifications
         {
-            public static void Show(string title, string desc, ToastDuration duration = ToastDuration.Short, string action = "focus")
+            public static void Show(
+            string title,
+            string desc,
+            ToastDuration duration = ToastDuration.Short,
+            Dictionary<string, string>? args = null)
             {
                 if (!Properties.Settings.Default.ShowNotifs)
                     return;
+
                 try
                 {
                     var builder = new ToastContentBuilder()
                         .AddText(title)
-                        .AddText(desc)
-                        .AddArgument("action", action);
+                        .AddText(desc);
 
-                    builder.AddAppLogoOverride(new Uri(Path.Combine(Environment.CurrentDirectory, "media/icon.png")), ToastGenericAppLogoCrop.Default);
+                    if (args != null)
+                    {
+                        foreach (var kv in args)
+                            builder.AddArgument(kv.Key, kv.Value);
+                    }
+
+                    builder.AddAppLogoOverride(
+                        new Uri(Path.Combine(Environment.CurrentDirectory, "media/icon.png")),
+                        ToastGenericAppLogoCrop.Default);
 
                     builder.SetToastDuration(duration);
                     builder.Show();
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show($"Error showing notification:\n{ex.Message}", "Notification Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    MessageBox.Show(
+                        $"Error showing notification:\n{ex.Message}",
+                        "Notification Error",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Error);
                 }
             }
         }
@@ -656,6 +763,20 @@ namespace Mari_Downloads
                         // Doesn't modify anything
                     }
                 }
+                public class YtSite : IUrlFilter
+                {
+                    private readonly string _site;
+
+                    public YtSite(string site)
+                    {
+                        _site = site;
+                        Manager.Downloader.RegisterYtSite(site);
+                    }
+
+                    public bool Match(Context ctx) => ctx.Site == _site;
+
+                    public void Apply(Context ctx) { } // Solo marca, no modifica
+                }
                 public static class Loader
                 {
                     public static void Load(string file)
@@ -678,6 +799,13 @@ namespace Mari_Downloads
                                         f
                                     );
 
+                                    break;
+
+                                case "ytsite":
+                                    Engine.Register(
+                                        new YtSite(f.Site),
+                                        f
+                                    );
                                     break;
 
                                 case "ratelimit":
@@ -871,11 +999,35 @@ namespace Mari_Downloads
 
             public static class Downloader
             {
-                static readonly HashSet<string> ytSites = new() { "youtube", "youtu", "twitch", "bilibili" };
+                private static readonly HashSet<string> _ytSites = new(StringComparer.OrdinalIgnoreCase)
+                {
+                    "youtube", "youtu", "twitch", "bilibili"  // defaults
+                };
+
+                public static void RegisterYtSite(string site)
+                {
+                    lock (_ytSites)
+                        _ytSites.Add(site);
+                }
+
+                public static void UnregisterYtSite(string site)
+                {
+                    lock (_ytSites)
+                        _ytSites.Remove(site);
+                }
+
+                public static IReadOnlyCollection<string> YtSites
+                {
+                    get { lock (_ytSites) return _ytSites.ToList(); }
+                }
 
                 public static async Task<(int ExitCode, string Output, string Command)> Run(Url url)
                 {
-                    if (ytSites.Contains(url.site))
+                    bool isYt;
+                    lock (_ytSites)
+                        isYt = _ytSites.Contains(url.site);
+
+                    if (isYt)
                         return await YT_Dlp.Run(url, YTDLPArgs.Build());
                     else
                         return await Gallery_Dl.Run(url, GalleryDLArgs.Build());
@@ -1219,24 +1371,28 @@ namespace Mari_Downloads
         }
         public void AddUrl(Manager.Url url)
         {
-            var ctx = Filter.Engine.Process(url.url, url.site);
+            Task.Run(() =>
+            {
+                var ctx = Filter.Engine.Process(url.url, url.site);
 
-            if (ctx.StopProcessing)
-                return;
+                if (ctx.StopProcessing)
+                    return;
 
-            url.url = ctx.Url;
-            url.site = ctx.Site;
+                url.url = ctx.Url;
+                url.site = ctx.Site;
 
-            if (RepetedUrl(url))
-                return;
+                Invoke(() =>
+                {
+                    if (RepetedUrl(url))
+                        return;
 
-            url.status.Change(Manager.Status.StatusType.Pending);
+                    url.status.Change(Manager.Status.StatusType.Pending);
 
-            int index = _urls.Rows.Add(url.status.GetDisplay(), url.site, url.url);
-
-            var row = _urls.Rows[index];
-
-            ApplyRowColor(row, url.status.GetDisplay());
+                    int index = _urls.Rows.Add(url.status.GetDisplay(), url.site, url.url);
+                    var row = _urls.Rows[index];
+                    ApplyRowColor(row, url.status.GetDisplay());
+                });
+            });
         }
         private void UpdateRowStatus(DataGridViewRow row, string status)
         {
@@ -1845,14 +2001,14 @@ namespace Mari_Downloads
 
             clipboard.ClipboardChanged += (sender, e) =>
             {
-                if (e.Content is string text)
+                if (e.Content is not string text) return;
+
+                Task.Run(() =>
                 {
                     var urls = Manager.Url.UrlExtractor(text);
-                    foreach (var Url in urls)
-                    {
-                        AddUrl(Url);
-                    }
-                }
+                    foreach (var url in urls)
+                        AddUrl(url);
+                });
             };
 
             _statusStrip.Items.Add(_statusLabel);
@@ -1995,12 +2151,228 @@ namespace Mari_Downloads
             };
 
             Button clear = new Button { BackgroundImage = Image.FromFile("media/clear.png"), BackgroundImageLayout = ImageLayout.Stretch, Size = new Size(35, 35) };
-            clear.Click += (e, r) =>
+            clear.Click += (s, e) =>
             {
-                _urls.Rows.Clear();
+                for (int i = _urls.Rows.Count - 1; i >= 0; i--)
+                {
+                    var row = _urls.Rows[i];
+                    if (row.IsNewRow) continue;
+
+                    string status = row.Cells["Status"].Value?.ToString();
+
+                    bool remove =
+                        (status == "Done" && Properties.Settings.Default.ClearDone) ||
+                        (status == "Sleeping" && Properties.Settings.Default.ClearSleeping) ||
+                        (status == "Downloading" && Properties.Settings.Default.ClearDownloading) ||
+                        (status == "Queued" && Properties.Settings.Default.ClearQueued) ||
+                        (status == "Error" && Properties.Settings.Default.ClearErrors);
+
+                    if (remove)
+                        _urls.Rows.RemoveAt(i);
+                }
+
+                UrlsStatusUpdate();
             };
 
-            Control[] Down = new Control[] { clear, autoStart, start };
+            MiniMenuPanel clearMenu = new MiniMenuPanel(clear);
+
+            CheckBox ClearDone = new CheckBox { Text = "Done", Checked = Properties.Settings.Default.ClearDone, TextAlign = ContentAlignment.MiddleLeft, CheckAlign = ContentAlignment.MiddleLeft, AutoSize = true };
+            CheckBox ClearSleeping = new CheckBox { Text = "Sleeping", Checked = Properties.Settings.Default.ClearSleeping, TextAlign = ContentAlignment.MiddleLeft, CheckAlign = ContentAlignment.MiddleLeft, AutoSize = true };
+            CheckBox ClearDownloading = new CheckBox { Text = "Downloading", Checked = Properties.Settings.Default.ClearDownloading, TextAlign = ContentAlignment.MiddleLeft, CheckAlign = ContentAlignment.MiddleLeft, AutoSize = true };
+            CheckBox ClearError = new CheckBox { Text = "Error", Checked = Properties.Settings.Default.ClearErrors, TextAlign = ContentAlignment.MiddleLeft, CheckAlign = ContentAlignment.MiddleLeft, AutoSize = true };
+            CheckBox ClearQueued = new CheckBox { Text = "Queued", Checked = Properties.Settings.Default.ClearQueued, TextAlign = ContentAlignment.MiddleLeft, CheckAlign = ContentAlignment.MiddleLeft, AutoSize = true };
+
+            ClearDone.CheckedChanged += (s, e) =>
+            {
+                Properties.Settings.Default.ClearDone = ClearDone.Checked;
+                Properties.Settings.Default.Save();
+            };
+
+            ClearSleeping.CheckedChanged += (s, e) =>
+            {
+                Properties.Settings.Default.ClearSleeping = ClearSleeping.Checked;
+                Properties.Settings.Default.Save();
+            };
+
+            ClearDownloading.CheckedChanged += (s, e) =>
+            {
+                Properties.Settings.Default.ClearDownloading = ClearDownloading.Checked;
+                Properties.Settings.Default.Save();
+            };
+
+            ClearQueued.CheckedChanged += (s, e) =>
+            {
+                Properties.Settings.Default.ClearQueued = ClearQueued.Checked;
+                Properties.Settings.Default.Save();
+            };
+
+            ClearError.CheckedChanged += (s, e) =>
+            {
+                Properties.Settings.Default.ClearErrors = ClearError.Checked;
+                Properties.Settings.Default.Save();
+            };
+
+            clearMenu.AddRow(new Control[] { ClearDone });
+            clearMenu.AddRow(new Control[] { ClearSleeping });
+            clearMenu.AddRow(new Control[] { ClearDownloading });
+            clearMenu.AddRow(new Control[] { ClearQueued });
+            clearMenu.AddRow(new Control[] { ClearError });
+
+            Button pauseResume = new Button
+            {
+                Size = new Size(100, 35),
+                Text = "Pause",
+                TextAlign = ContentAlignment.MiddleCenter
+            };
+            pauseResume.Click += (e, r) =>
+            {
+                if (_pauseEvent.IsSet)
+                {
+                    PauseDownloads();
+                    pauseResume.Text = "Resume";
+                }
+                else
+                {
+                    ResumeDownloads();
+                    pauseResume.Text = "Pause";
+                }
+            };
+
+            Button cancel = new Button
+            {
+                Size = new Size(100, 35),
+                Text = "Cancel",
+                TextAlign = ContentAlignment.MiddleCenter
+            };
+            cancel.Click += (e, r) =>
+            {
+                var result = MessageBox.Show(
+                    "Cancel all active downloads?\nQueued and downloading URLs will be reset to Sleeping.",
+                    "Cancel Downloads",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Warning
+                );
+
+                if (result != DialogResult.Yes) return;
+
+                // Si estaba pausado, resumir para que los workers no queden colgados
+                bool wasPaused = !_pauseEvent.IsSet;
+                if (wasPaused)
+                {
+                    ResumeDownloads();
+                    pauseResume.Text = "Pause";
+                }
+
+                StopDownloads();
+                StartWorkers();
+
+                // Resetear rows que quedaron en Queued o Downloading a Sleeping
+                foreach (DataGridViewRow row in _urls.Rows)
+                {
+                    if (row.IsNewRow) continue;
+                    string status = row.Cells["Status"].Value?.ToString();
+                    if (status == "Queued" || status == "Downloading")
+                        UpdateRowStatus(row, "Sleeping");
+                }
+
+                UrlsStatusUpdate();
+            };
+
+            Button export = new Button { Size = new Size(90, 35), Text = "Export" };
+
+            export.Click += (s, e) =>
+            {
+                List<string> urls = new List<string>();
+
+                foreach (DataGridViewRow row in _urls.Rows)
+                {
+                    if (row.IsNewRow) continue;
+
+                    string status = row.Cells["Status"].Value?.ToString();
+
+                    bool include =
+                        (status == "Done" && Properties.Settings.Default.ExportDone) ||
+                        (status == "Sleeping" && Properties.Settings.Default.ExportSleeping) ||
+                        (status == "Downloading" && Properties.Settings.Default.ExportDownloading) ||
+                        (status == "Queued" && Properties.Settings.Default.ExportQueued) ||
+                        (status == "Error" && Properties.Settings.Default.ExportErrors);
+
+                    if (!include) continue;
+
+                    string url = row.Cells["URL"].Value?.ToString();
+                    if (!string.IsNullOrWhiteSpace(url))
+                        urls.Add(url);
+                }
+
+                if (urls.Count == 0)
+                {
+                    Notifications.Show("Nothing to export", "There are no URL's to export");
+                    return;
+                }
+
+                string filename = $"export-{DateTime.Now:yyyy-MM-dd_HH.mm.ss}.txt";
+                string exportDir = Path.Combine(Environment.CurrentDirectory, "Exports");
+                Directory.CreateDirectory(exportDir);
+                string fullPath = Path.Combine(exportDir, filename);
+                File.WriteAllLines(fullPath, urls);
+
+                Notifications.Show(
+                    "Exported Successfully",
+                    $"Exported to {filename}",
+                    ToastDuration.Short,
+                    new Dictionary<string, string>
+                    {
+                        { "action", "export" },
+                        { "path", fullPath }
+                    }
+                );
+            };
+
+            MiniMenuPanel exportMenu = new MiniMenuPanel(export);
+
+            CheckBox ExportDone = new CheckBox { Text = "Done", Checked = Properties.Settings.Default.ExportDone, TextAlign = ContentAlignment.MiddleLeft, CheckAlign = ContentAlignment.MiddleLeft, AutoSize = true };
+            CheckBox ExportSleeping = new CheckBox { Text = "Sleeping", Checked = Properties.Settings.Default.ExportSleeping, TextAlign = ContentAlignment.MiddleLeft, CheckAlign = ContentAlignment.MiddleLeft, AutoSize = true };
+            CheckBox ExportDownloading = new CheckBox { Text = "Downloading", Checked = Properties.Settings.Default.ExportDownloading, TextAlign = ContentAlignment.MiddleLeft, CheckAlign = ContentAlignment.MiddleLeft, AutoSize = true };
+            CheckBox ExportError = new CheckBox { Text = "Error", Checked = Properties.Settings.Default.ExportErrors, TextAlign = ContentAlignment.MiddleLeft, CheckAlign = ContentAlignment.MiddleLeft, AutoSize = true };
+            CheckBox ExportQueued = new CheckBox { Text = "Queued", Checked = Properties.Settings.Default.ExportQueued, TextAlign = ContentAlignment.MiddleLeft, CheckAlign = ContentAlignment.MiddleLeft, AutoSize = true };
+
+            ExportDone.CheckedChanged += (s, e) =>
+            {
+                Properties.Settings.Default.ExportDone = ExportDone.Checked;
+                Properties.Settings.Default.Save();
+            };
+
+            ExportSleeping.CheckedChanged += (s, e) =>
+            {
+                Properties.Settings.Default.ExportSleeping = ExportSleeping.Checked;
+                Properties.Settings.Default.Save();
+            };
+
+            ExportDownloading.CheckedChanged += (s, e) =>
+            {
+                Properties.Settings.Default.ExportDownloading = ExportDownloading.Checked;
+                Properties.Settings.Default.Save();
+            };
+
+            ExportQueued.CheckedChanged += (s, e) =>
+            {
+                Properties.Settings.Default.ExportQueued = ExportQueued.Checked;
+                Properties.Settings.Default.Save();
+            };
+
+            ExportError.CheckedChanged += (s, e) =>
+            {
+                Properties.Settings.Default.ExportErrors = ExportError.Checked;
+                Properties.Settings.Default.Save();
+            };
+
+            exportMenu.AddRow(new Control[] { ExportDone });
+            exportMenu.AddRow(new Control[] { ExportSleeping });
+            exportMenu.AddRow(new Control[] { ExportDownloading });
+            exportMenu.AddRow(new Control[] { ExportQueued });
+            exportMenu.AddRow(new Control[] { ExportError });
+
+            Control[] Down = new Control[] { export, clear, pauseResume, cancel, autoStart, start };
 
 
             urlpnl.SetMainControl(_urls);
@@ -2201,22 +2573,19 @@ namespace Mari_Downloads
         private void ArgsNav(MiniPanel reference)
         {
             Button gdl = new Button { Size = new Size(170, 35), Text = "Gallery-DL Arguments", TextAlign = ContentAlignment.MiddleCenter };
-            gdl.Click += (s, e) => { MiniPanelManager.Show(Arguments_GDL); };
-
             Button ytdlp = new Button { Size = new Size(170, 35), Text = "YT-dlp Arguments", TextAlign = ContentAlignment.MiddleCenter };
-            ytdlp.Click += (s, e) => { MiniPanelManager.Show(Arguments_YTDL); };
-
             Button alias = new Button { Size = new Size(170, 35), Text = "Alias Override", TextAlign = ContentAlignment.MiddleCenter };
-            alias.Click += (s, e) => { MiniPanelManager.Show(Alias_Override); };
+            Button ratelimit = new Button { Size = new Size(170, 35), Text = "Rate Limiter", TextAlign = ContentAlignment.MiddleCenter };
+            Button ytsites = new Button { Size = new Size(170, 35), Text = "YT-dlp Sites", TextAlign = ContentAlignment.MiddleCenter };
 
-            Button ratelimiter = new Button { Size = new Size(170, 35), Text = "Rate Limiter", TextAlign = ContentAlignment.MiddleCenter };
-            ratelimiter.Click += (s, e) => { MiniPanelManager.Show(Rate_Limiter); };
+            gdl.Click += (s, e) => MiniPanelManager.Show(Arguments_GDL);
+            ytdlp.Click += (s, e) => MiniPanelManager.Show(Arguments_YTDL);
+            alias.Click += (s, e) => MiniPanelManager.Show(Alias_Override);
+            ratelimit.Click += (s, e) => MiniPanelManager.Show(Rate_Limiter);
+            ytsites.Click += (s, e) => MiniPanelManager.Show(YtSites_Panel);
 
-            Control[] up = { gdl, ytdlp, alias, ratelimiter };
-            reference.AddUpControls(up);
-
-            Control[] space = { new Label() };
-            reference.AddRow(space);
+            reference.AddUpControls(new Control[] { gdl, ytdlp, alias, ratelimit, ytsites });
+            reference.AddRow(new Control[] { new Label() });
         }
 
         private MiniPanel Args_GDL()
@@ -2406,6 +2775,93 @@ namespace Mari_Downloads
             return panel;
         }
 
+        private MiniPanel YtSitesPanel()
+        {
+            MiniPanel panel = new MiniPanel(true, true);
+            ArgsNav(panel);
+
+            DataGridView dgv = new DataGridView
+            {
+                Dock = DockStyle.Fill,
+                BorderStyle = BorderStyle.None,
+                EnableHeadersVisualStyles = false,
+                ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.None,
+                RowHeadersVisible = false,
+                AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+                SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+                MultiSelect = false,
+                AllowUserToAddRows = false,
+            };
+
+            dgv.Columns.Add(new DataGridViewTextBoxColumn { Name = "Site", HeaderText = "Site (uses yt-dlp)" });
+
+            // Cargar defaults + los registrados por filtros
+            foreach (var site in Manager.Downloader.YtSites)
+                dgv.Rows.Add(site);
+
+            void SaveYtSites()
+            {
+                // Reconstruir: quitar todos los ytsite entries, re-registrar desde DGV
+                var entries = Manager.Filter.Engine.Entries
+                    .Where(e => e.Type != "ytsite")
+                    .ToList();
+
+                Manager.Filter.Engine.Clear();
+
+                foreach (var e in entries)
+                {
+                    switch (e.Type)
+                    {
+                        case "alias":
+                            Manager.Filter.Engine.Register(new Manager.Filter.SiteAlias(e.From, e.To), e);
+                            break;
+                        case "ratelimit":
+                            Manager.Filter.Engine.Register(new Manager.Filter.SiteRateLimit(e.Site, int.Parse(e.Replace)), e);
+                            break;
+                    }
+                }
+
+                // Limpiar y reconstruir el HashSet desde el DGV
+                foreach (var site in Manager.Downloader.YtSites.ToList())
+                    Manager.Downloader.UnregisterYtSite(site);
+
+                foreach (DataGridViewRow row in dgv.Rows)
+                {
+                    if (row.IsNewRow) continue;
+                    string site = row.Cells["Site"].Value?.ToString()?.Trim();
+                    if (string.IsNullOrWhiteSpace(site)) continue;
+
+                    var entry = new Manager.Filter.Entry { Type = "ytsite", Site = site };
+                    Manager.Filter.Engine.Register(new Manager.Filter.YtSite(site), entry);
+                }
+
+                Manager.Filter.Saver.Save("filters.json");
+            }
+
+            dgv.CellEndEdit += (s, e) => SaveYtSites();
+
+            Button add = new Button { Size = new Size(100, 35), Text = "Add" };
+            add.Click += (s, e) =>
+            {
+                dgv.Rows.Add("site");
+                SaveYtSites();
+            };
+
+            Button delete = new Button { Size = new Size(100, 35), Text = "Delete" };
+            delete.Click += (s, e) =>
+            {
+                if (dgv.SelectedRows.Count > 0 && !dgv.SelectedRows[0].IsNewRow)
+                {
+                    dgv.Rows.Remove(dgv.SelectedRows[0]);
+                    SaveYtSites();
+                }
+            };
+
+            panel.SetMainControl(dgv);
+            panel.AddDownControls(new Control[] { delete, add });
+
+            return panel;
+        }
 
         public static T FindControl<T>(Control parent, Func<T, bool> predicate) where T : class
         {
@@ -2464,6 +2920,7 @@ namespace Mari_Downloads
         MiniPanel Arguments_YTDL;
         MiniPanel Alias_Override;
         MiniPanel Rate_Limiter;
+        MiniPanel YtSites_Panel;
 
         private async void Main_Load(object sender, EventArgs e)
         {
