@@ -78,6 +78,7 @@ namespace Mari_Downloads
             Alias_Override = Alias();
             Rate_Limiter = Rate();
             YtSites_Panel = YtSitesPanel();
+            RegexFilters_Panel = RegexFilters();
 
             InitializeComponent();
             BaseComponents();
@@ -141,9 +142,9 @@ namespace Mari_Downloads
                 {
                     Dock = DockStyle.Top,
                     FlowDirection = FlowDirection.LeftToRight,
-                    Height = 45,
-                    Padding = new Padding(5),
-                    AutoScroll = true
+                    Height = 80,
+                    Padding = new Padding(0,0,0,15),
+                    AutoScroll = true,
                 };
 
                 _rowsContainer = new FlowLayoutPanel
@@ -777,6 +778,32 @@ namespace Mari_Downloads
 
                     public void Apply(Context ctx) { } // Solo marca, no modifica
                 }
+                public class RegexUrlRewrite : IUrlFilter
+                {
+                    private readonly Regex _pattern;
+                    private readonly string _replace;
+                    private readonly string? _site;
+
+                    public RegexUrlRewrite(string pattern, string replace, string? site = null)
+                    {
+                        _pattern = new Regex(pattern, RegexOptions.Compiled | RegexOptions.IgnoreCase);
+                        _replace = replace;
+                        _site = site;
+                    }
+
+                    public bool Match(Context ctx)
+                    {
+                        if (_site != null && ctx.Site != _site)
+                            return false;
+
+                        return _pattern.IsMatch(ctx.Url);
+                    }
+
+                    public void Apply(Context ctx)
+                    {
+                        ctx.Url = _pattern.Replace(ctx.Url, _replace);
+                    }
+                }
                 public static class Loader
                 {
                     public static void Load(string file)
@@ -814,7 +841,13 @@ namespace Mari_Downloads
                                         new SiteRateLimit(f.Site, int.Parse(f.Replace)),
                                         f
                                     );
+                                    break;
 
+                                case "regex":
+                                    Engine.Register(
+                                        new RegexUrlRewrite(f.From, f.Replace, f.Site),
+                                        f
+                                    );
                                     break;
                             }
                         }
@@ -2577,15 +2610,16 @@ namespace Mari_Downloads
             Button alias = new Button { Size = new Size(170, 35), Text = "Alias Override", TextAlign = ContentAlignment.MiddleCenter };
             Button ratelimit = new Button { Size = new Size(170, 35), Text = "Rate Limiter", TextAlign = ContentAlignment.MiddleCenter };
             Button ytsites = new Button { Size = new Size(170, 35), Text = "YT-dlp Sites", TextAlign = ContentAlignment.MiddleCenter };
+            Button regex = new Button { Size = new Size(170, 35), Text = "Regex Filters", TextAlign = ContentAlignment.MiddleCenter };
 
             gdl.Click += (s, e) => MiniPanelManager.Show(Arguments_GDL);
             ytdlp.Click += (s, e) => MiniPanelManager.Show(Arguments_YTDL);
             alias.Click += (s, e) => MiniPanelManager.Show(Alias_Override);
             ratelimit.Click += (s, e) => MiniPanelManager.Show(Rate_Limiter);
             ytsites.Click += (s, e) => MiniPanelManager.Show(YtSites_Panel);
+            regex.Click += (s, e) => MiniPanelManager.Show(RegexFilters_Panel);
 
-            reference.AddUpControls(new Control[] { gdl, ytdlp, alias, ratelimit, ytsites });
-            reference.AddRow(new Control[] { new Label() });
+            reference.AddUpControls(new Control[] { gdl, ytdlp, alias, ratelimit, ytsites, regex });
         }
 
         private MiniPanel Args_GDL()
@@ -2863,6 +2897,113 @@ namespace Mari_Downloads
             return panel;
         }
 
+        private MiniPanel RegexFilters()
+        {
+            MiniPanel panel = new MiniPanel(true, true);
+            ArgsNav(panel);
+
+            DataGridView dgv = new DataGridView
+            {
+                Dock = DockStyle.Fill,
+                BorderStyle = BorderStyle.None,
+                EnableHeadersVisualStyles = false,
+                ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.None,
+                RowHeadersVisible = false,
+                AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+                SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+                MultiSelect = false,
+                AllowUserToAddRows = false,
+            };
+
+            dgv.Columns.Add(new DataGridViewTextBoxColumn { Name = "Site", HeaderText = "Site (optional)" });
+            dgv.Columns.Add(new DataGridViewTextBoxColumn { Name = "Pattern", HeaderText = "Regex Pattern" });
+            dgv.Columns.Add(new DataGridViewTextBoxColumn { Name = "Replace", HeaderText = "Replace" });
+
+            // cargar existentes
+            foreach (var r in Manager.Filter.Engine.Entries.Where(e => e.Type == "regex"))
+                dgv.Rows.Add(r.Site, r.From, r.Replace);
+
+            void SaveRegex()
+            {
+                var entries = Manager.Filter.Engine.Entries
+                    .Where(e => e.Type != "regex")
+                    .ToList();
+
+                Manager.Filter.Engine.Clear();
+
+                foreach (var e in entries)
+                {
+                    switch (e.Type)
+                    {
+                        case "alias":
+                            Manager.Filter.Engine.Register(
+                                new Manager.Filter.SiteAlias(e.From, e.To), e);
+                            break;
+
+                        case "ratelimit":
+                            Manager.Filter.Engine.Register(
+                                new Manager.Filter.SiteRateLimit(e.Site, int.Parse(e.Replace)), e);
+                            break;
+
+                        case "ytsite":
+                            Manager.Filter.Engine.Register(
+                                new Manager.Filter.YtSite(e.Site), e);
+                            break;
+                    }
+                }
+
+                foreach (DataGridViewRow row in dgv.Rows)
+                {
+                    if (row.IsNewRow) continue;
+
+                    string site = row.Cells["Site"].Value?.ToString()?.Trim();
+                    string pattern = row.Cells["Pattern"].Value?.ToString()?.Trim();
+                    string replace = row.Cells["Replace"].Value?.ToString();
+
+                    if (string.IsNullOrWhiteSpace(pattern) || replace == null)
+                        continue;
+
+                    var entry = new Manager.Filter.Entry
+                    {
+                        Type = "regex",
+                        Site = string.IsNullOrWhiteSpace(site) ? null : site,
+                        From = pattern,
+                        Replace = replace
+                    };
+
+                    Manager.Filter.Engine.Register(
+                        new Manager.Filter.RegexUrlRewrite(pattern, replace, entry.Site),
+                        entry);
+                }
+
+                Manager.Filter.Saver.Save("filters.json");
+            }
+
+            dgv.CellEndEdit += (s, e) => SaveRegex();
+
+            Button add = new Button { Size = new Size(100, 35), Text = "Add" };
+            add.Click += (s, e) =>
+            {
+                dgv.Rows.Add("", "^https://", "https://");
+                SaveRegex();
+            };
+
+            Button delete = new Button { Size = new Size(100, 35), Text = "Delete" };
+            delete.Click += (s, e) =>
+            {
+                if (dgv.SelectedRows.Count > 0 && !dgv.SelectedRows[0].IsNewRow)
+                {
+                    dgv.Rows.Remove(dgv.SelectedRows[0]);
+                    SaveRegex();
+                }
+            };
+
+            panel.SetMainControl(dgv);
+            panel.AddDownControls(new Control[] { delete, add });
+
+            return panel;
+        }
+
         public static T FindControl<T>(Control parent, Func<T, bool> predicate) where T : class
         {
             foreach (Control control in parent.Controls)
@@ -2921,6 +3062,7 @@ namespace Mari_Downloads
         MiniPanel Alias_Override;
         MiniPanel Rate_Limiter;
         MiniPanel YtSites_Panel;
+        MiniPanel RegexFilters_Panel;
 
         private async void Main_Load(object sender, EventArgs e)
         {
