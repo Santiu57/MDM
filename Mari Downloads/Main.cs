@@ -9,6 +9,7 @@ using System.Diagnostics;
 using System.DirectoryServices.ActiveDirectory;
 using System.Drawing;
 using System.Security.Cryptography.X509Certificates;
+using System.Security.Policy;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -27,6 +28,7 @@ namespace Mari_Downloads
         public Main()
         {
             //Notification Actions
+            ToastNotificationManagerCompat.History.Clear();
             ToastNotificationManagerCompat.OnActivated += toastArgs =>
             {
                 ToastArguments args = ToastArguments.Parse(toastArgs.Argument);
@@ -82,7 +84,6 @@ namespace Mari_Downloads
 
             InitializeComponent();
             BaseComponents();
-            SetImages();
             SetWindowConfig();
             MiniPanelManager.Show(UrlPnl);
             AppCustomization.FontChange(this, Properties.Settings.Default.MainFont);
@@ -134,16 +135,14 @@ namespace Mari_Downloads
                 {
                     Dock = DockStyle.Bottom,
                     FlowDirection = FlowDirection.RightToLeft,
-                    Height = 45,
-                    Padding = new Padding(5)
+                    Height = 60,
                 };
 
                 _upPanel = new FlowLayoutPanel
                 {
                     Dock = DockStyle.Top,
                     FlowDirection = FlowDirection.LeftToRight,
-                    Height = 80,
-                    Padding = new Padding(0,0,0,15),
+                    Height = 50,
                     AutoScroll = true,
                 };
 
@@ -404,14 +403,6 @@ namespace Mari_Downloads
                     }
                 });
             }
-            public static void WindowConfig(Form window)
-            {
-                window.FormBorderStyle = FormBorderStyle.FixedSingle;
-                window.MaximizeBox = false;
-                window.MinimizeBox = true;
-                window.ControlBox = true;
-                window.ShowIcon = true;
-            }
             public static void FontChange(Control form, Font font)
             {
                 if (font == null)
@@ -458,12 +449,6 @@ namespace Mari_Downloads
                 }
             }
         }
-
-        private void SetImages()
-        {
-
-        }
-
         private void SetWindowConfig()
         {
             this.FormBorderStyle = FormBorderStyle.FixedSingle;
@@ -560,7 +545,7 @@ namespace Mari_Downloads
                         ToastGenericAppLogoCrop.Default);
 
                     builder.SetToastDuration(duration);
-                    builder.Show();
+                    builder.Show(toast => toast.Tag = "Mari");
                 }
                 catch (Exception ex)
                 {
@@ -838,7 +823,7 @@ namespace Mari_Downloads
                                 case "ratelimit":
 
                                     Engine.Register(
-                                        new SiteRateLimit(f.Site, int.Parse(f.Replace)),
+                                        new SiteRateLimit(f.Site, f.Limit),
                                         f
                                     );
                                     break;
@@ -1516,7 +1501,7 @@ namespace Mari_Downloads
 
         private void StartWorkers()
         {
-            int workers = Environment.ProcessorCount * 2;
+            int workers = 20;
 
             for (int i = 0; i < workers; i++)
                 Task.Run(WorkerLoop);
@@ -1924,7 +1909,7 @@ namespace Mari_Downloads
         private Control[] BuildFolderPath(Manager.Argument arg, Action onChanged)
         {
             TextBox tb = new TextBox { Text = arg.Value, Size = new Size(200, 28) };
-            Button btn = new Button { Text = "...", Size = new Size(35, 28) };
+            Button btn = new Button { BackgroundImage = Image.FromFile("media/folder.png"), BackgroundImageLayout = ImageLayout.Stretch, Size = new Size(35, 28) };
 
             tb.TextChanged += (s, e) => { arg.Value = tb.Text; onChanged(); };
 
@@ -2004,7 +1989,7 @@ namespace Mari_Downloads
 
             ToolStripButton Config = new ToolStripButton
             {
-                Image = Image.FromFile("media/icon.png"),
+                Image = Image.FromFile("media/config.png"),
                 Alignment = ToolStripItemAlignment.Right
             };
             Config.Click += (sender, e) => { MiniPanelManager.Show(AppConfiguration); };
@@ -2016,9 +2001,17 @@ namespace Mari_Downloads
             };
             Args.Click += (sender, e) => { MiniPanelManager.Show(Arguments_GDL); };
 
+            ToolStripButton Filters = new ToolStripButton
+            {
+                Image = Image.FromFile("media/icon.png"),
+                Alignment = ToolStripItemAlignment.Left
+            };
+            Filters.Click += (sender, e) => { MiniPanelManager.Show(Alias_Override); };
+
             tools.Items.Add(UrlsShow);
             tools.Items.Add(Args);
             tools.Items.Add(Config);
+            tools.Items.Add(Filters);
 
             _statusStrip = new StatusStrip { Name = "StatusStrip", Font = Properties.Settings.Default.MainFont };
 
@@ -2154,12 +2147,23 @@ namespace Mari_Downloads
                 if (e.RowIndex < 0 || e.ColumnIndex < 0) return;
 
                 var col = _urls.Columns[e.ColumnIndex];
-                if (col.Name != "Url") return;
+                if (col.Name == "Url")
+                {
+                    string url = _urls.Rows[e.RowIndex].Cells["Url"].Value?.ToString();
+                    if (string.IsNullOrWhiteSpace(url)) return;
 
-                string url = _urls.Rows[e.RowIndex].Cells["Url"].Value?.ToString();
-                if (string.IsNullOrWhiteSpace(url)) return;
+                    Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+                }
+                if (col.Name == "Site")
+                {
+                    string status = _urls.Rows[e.RowIndex].Cells["Status"].Value?.ToString();
+                    if (string.IsNullOrWhiteSpace(status) || status != "Error") return;
 
-                Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+                    var row = _urls.Rows[e.RowIndex];
+
+                    UpdateRowStatus(row, "Sleeping");
+                    Start();
+                }
             };
 
             //Down
@@ -2430,9 +2434,6 @@ namespace Mari_Downloads
 
             Control[] up = { AppC, AppP, AppD, Notifs };
             reference.AddUpControls(up);
-
-            Control[] space = { new Label() };
-            reference.AddRow(space);
         }
 
         private MiniPanel AppConfig()
@@ -2607,19 +2608,13 @@ namespace Mari_Downloads
         {
             Button gdl = new Button { Size = new Size(170, 35), Text = "Gallery-DL Arguments", TextAlign = ContentAlignment.MiddleCenter };
             Button ytdlp = new Button { Size = new Size(170, 35), Text = "YT-dlp Arguments", TextAlign = ContentAlignment.MiddleCenter };
-            Button alias = new Button { Size = new Size(170, 35), Text = "Alias Override", TextAlign = ContentAlignment.MiddleCenter };
-            Button ratelimit = new Button { Size = new Size(170, 35), Text = "Rate Limiter", TextAlign = ContentAlignment.MiddleCenter };
-            Button ytsites = new Button { Size = new Size(170, 35), Text = "YT-dlp Sites", TextAlign = ContentAlignment.MiddleCenter };
-            Button regex = new Button { Size = new Size(170, 35), Text = "Regex Filters", TextAlign = ContentAlignment.MiddleCenter };
+            
 
             gdl.Click += (s, e) => MiniPanelManager.Show(Arguments_GDL);
             ytdlp.Click += (s, e) => MiniPanelManager.Show(Arguments_YTDL);
-            alias.Click += (s, e) => MiniPanelManager.Show(Alias_Override);
-            ratelimit.Click += (s, e) => MiniPanelManager.Show(Rate_Limiter);
-            ytsites.Click += (s, e) => MiniPanelManager.Show(YtSites_Panel);
-            regex.Click += (s, e) => MiniPanelManager.Show(RegexFilters_Panel);
+            
 
-            reference.AddUpControls(new Control[] { gdl, ytdlp, alias, ratelimit, ytsites, regex });
+            reference.AddUpControls(new Control[] { gdl, ytdlp});
         }
 
         private MiniPanel Args_GDL()
@@ -2643,10 +2638,25 @@ namespace Mari_Downloads
 
             return panel;
         }
+
+        private void FiltersNav(MiniPanel reference)
+        {
+            Button alias = new Button { Size = new Size(170, 35), Text = "Alias Override", TextAlign = ContentAlignment.MiddleCenter };
+            Button ratelimit = new Button { Size = new Size(170, 35), Text = "Rate Limiter", TextAlign = ContentAlignment.MiddleCenter };
+            Button ytsites = new Button { Size = new Size(170, 35), Text = "YT-dlp Sites", TextAlign = ContentAlignment.MiddleCenter };
+            Button regex = new Button { Size = new Size(170, 35), Text = "Regex Filters", TextAlign = ContentAlignment.MiddleCenter };
+
+            alias.Click += (s, e) => MiniPanelManager.Show(Alias_Override);
+            ratelimit.Click += (s, e) => MiniPanelManager.Show(Rate_Limiter);
+            ytsites.Click += (s, e) => MiniPanelManager.Show(YtSites_Panel);
+            regex.Click += (s, e) => MiniPanelManager.Show(RegexFilters_Panel);
+
+            reference.AddUpControls(new Control[] { alias, ratelimit, ytsites, regex });
+        }
         private MiniPanel Alias()
         {
             MiniPanel panel = new MiniPanel(true, true);
-            ArgsNav(panel);
+            FiltersNav(panel);
 
             DataGridView dgv = new DataGridView
             {
@@ -2681,9 +2691,25 @@ namespace Mari_Downloads
                 {
                     switch (e.Type)
                     {
+                        case "ytsite":
+                            Manager.Filter.Engine.Register(
+                                new Manager.Filter.YtSite(e.Site),
+                                e
+                            );
+                            break;
+
                         case "ratelimit":
                             Manager.Filter.Engine.Register(
-                                new Manager.Filter.SiteRateLimit(e.Site, int.Parse(e.Replace)), e);
+                                new Manager.Filter.SiteRateLimit(e.Site, e.Limit),
+                                e
+                            );
+                            break;
+
+                        case "regex":
+                            Manager.Filter.Engine.Register(
+                                new Manager.Filter.RegexUrlRewrite(e.From, e.Replace, e.Site),
+                                e
+                            );
                             break;
                     }
                 }
@@ -2730,7 +2756,7 @@ namespace Mari_Downloads
         private MiniPanel Rate()
         {
             MiniPanel panel = new MiniPanel(true, true);
-            ArgsNav(panel);
+            FiltersNav(panel);
 
             DataGridView dgv = new DataGridView
             {
@@ -2765,7 +2791,23 @@ namespace Mari_Downloads
                     {
                         case "alias":
                             Manager.Filter.Engine.Register(
-                                new Manager.Filter.SiteAlias(e.From, e.To), e);
+                                new Manager.Filter.SiteAlias(e.From, e.To),
+                                e
+                            );
+                            break;
+
+                        case "ytsite":
+                            Manager.Filter.Engine.Register(
+                                new Manager.Filter.YtSite(e.Site),
+                                e
+                            );
+                            break;
+
+                        case "regex":
+                            Manager.Filter.Engine.Register(
+                                new Manager.Filter.RegexUrlRewrite(e.From, e.Replace, e.Site),
+                                e
+                            );
                             break;
                     }
                 }
@@ -2777,7 +2819,7 @@ namespace Mari_Downloads
                     string limit = row.Cells["Limit"].Value?.ToString()?.Trim();
                     if (string.IsNullOrWhiteSpace(site) || !int.TryParse(limit, out int lim)) continue;
 
-                    var entry = new Manager.Filter.Entry { Type = "ratelimit", Site = site, Replace = limit };
+                    var entry = new Manager.Filter.Entry { Type = "ratelimit", Site = site, Limit = lim };
                     Manager.Filter.Engine.Register(new Manager.Filter.SiteRateLimit(site, lim), entry);
                 }
 
@@ -2812,7 +2854,7 @@ namespace Mari_Downloads
         private MiniPanel YtSitesPanel()
         {
             MiniPanel panel = new MiniPanel(true, true);
-            ArgsNav(panel);
+            FiltersNav(panel);
 
             DataGridView dgv = new DataGridView
             {
@@ -2847,10 +2889,24 @@ namespace Mari_Downloads
                     switch (e.Type)
                     {
                         case "alias":
-                            Manager.Filter.Engine.Register(new Manager.Filter.SiteAlias(e.From, e.To), e);
+                            Manager.Filter.Engine.Register(
+                                new Manager.Filter.SiteAlias(e.From, e.To),
+                                e
+                            );
                             break;
+
                         case "ratelimit":
-                            Manager.Filter.Engine.Register(new Manager.Filter.SiteRateLimit(e.Site, int.Parse(e.Replace)), e);
+                            Manager.Filter.Engine.Register(
+                                new Manager.Filter.SiteRateLimit(e.Site, e.Limit),
+                                e
+                            );
+                            break;
+
+                        case "regex":
+                            Manager.Filter.Engine.Register(
+                                new Manager.Filter.RegexUrlRewrite(e.From, e.Replace, e.Site),
+                                e
+                            );
                             break;
                     }
                 }
@@ -2900,7 +2956,7 @@ namespace Mari_Downloads
         private MiniPanel RegexFilters()
         {
             MiniPanel panel = new MiniPanel(true, true);
-            ArgsNav(panel);
+            FiltersNav(panel);
 
             DataGridView dgv = new DataGridView
             {
@@ -2942,7 +2998,7 @@ namespace Mari_Downloads
 
                         case "ratelimit":
                             Manager.Filter.Engine.Register(
-                                new Manager.Filter.SiteRateLimit(e.Site, int.Parse(e.Replace)), e);
+                                new Manager.Filter.SiteRateLimit(e.Site, e.Limit),e);
                             break;
 
                         case "ytsite":
