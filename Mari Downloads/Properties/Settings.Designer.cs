@@ -598,5 +598,29 @@ namespace Mari_Downloads.Properties {
                 this["ClearDownloading"] = value;
             }
         }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("False")]
+        public bool RetryDone {
+            get {
+                return ((bool)(this["RetryDone"]));
+            }
+            set {
+                this["RetryDone"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("True")]
+        public bool RetryErrors {
+            get {
+                return ((bool)(this["RetryErrors"]));
+            }
+            set {
+                this["RetryErrors"] = value;
+            }
+        }
     }
 }

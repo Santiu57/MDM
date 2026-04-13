@@ -60,6 +60,7 @@ namespace Mari_Downloads
                 }));
             };
 
+            MediaCheck();
             MiniPanelManager.SetHost(this);
 
             //Filters Loader
@@ -135,14 +136,14 @@ namespace Mari_Downloads
                 {
                     Dock = DockStyle.Bottom,
                     FlowDirection = FlowDirection.RightToLeft,
-                    Height = 60,
+                    Height = 45,
                 };
 
                 _upPanel = new FlowLayoutPanel
                 {
                     Dock = DockStyle.Top,
                     FlowDirection = FlowDirection.LeftToRight,
-                    Height = 50,
+                    Height = 60,
                     AutoScroll = true,
                 };
 
@@ -449,6 +450,29 @@ namespace Mari_Downloads
                 }
             }
         }
+
+        private void MediaCheck()
+        {
+            string notFoundFiles = "";
+            foreach (var file in Media)
+            {
+                if (!File.Exists($"media/{file.Value}"))
+                {
+                    notFoundFiles += $"{file.Value}\n";
+                }
+            }
+
+            if (!string.IsNullOrEmpty(notFoundFiles))
+            {
+                MessageBox.Show(
+                    $"Required files not found:\n{notFoundFiles}Ensure they exist in the 'media' directory.",
+                    "File Missing",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error
+                );
+                Environment.Exit(1);
+            }
+        }
         private void SetWindowConfig()
         {
             this.FormBorderStyle = FormBorderStyle.FixedSingle;
@@ -456,8 +480,8 @@ namespace Mari_Downloads
             this.MinimizeBox = true;
             this.ControlBox = true;
             this.ShowIcon = true;
-            this.Icon = new Icon("media/icon.ico");
             this.Text = "(ᓀ‸ᓂ)";
+            this.Icon = new Icon("media/icon.ico");
         }
         private void ApplyRowColor(DataGridViewRow row, string status)
         {
@@ -916,8 +940,12 @@ namespace Mari_Downloads
                         WriteIndented = true
                     };
 
-                    File.WriteAllText(file,
+                    try
+                    {
+                        File.WriteAllText(file,
                         JsonSerializer.Serialize(logs, options));
+                    }
+                    catch(Exception e) { MessageBox.Show(e.Message); }
                 }
             }
             public class Status
@@ -1504,7 +1532,9 @@ namespace Mari_Downloads
             int workers = 20;
 
             for (int i = 0; i < workers; i++)
-                Task.Run(WorkerLoop);
+            {
+                _workers.Add(Task.Run(WorkerLoop));
+            } 
         }
         private async Task WorkerLoop()
         {
@@ -1512,7 +1542,7 @@ namespace Mari_Downloads
             {
                 await foreach (var job in _downloadChannel.Reader.ReadAllAsync(_cts.Token))
                 {
-                    _pauseEvent.Wait();
+                    _pauseEvent.Wait(_cts.Token);
 
                     SemaphoreSlim currentSemaphore;
                     lock (_semaphoreLock)
@@ -1521,12 +1551,11 @@ namespace Mari_Downloads
                     await currentSemaphore.WaitAsync(_cts.Token);
 
                     var siteSemaphore = Manager.SiteRateLimiter.Get(job.url.site);
-                    await siteSemaphore.WaitAsync();
+                    await siteSemaphore.WaitAsync(_cts.Token);
 
                     try
                     {
                         UpdateRowStatus(job.row, "Downloading");
-
                         UrlsStatusUpdate();
 
                         var (exit, output, command) = await Manager.Downloader.Run(job.url);
@@ -1559,9 +1588,17 @@ namespace Mari_Downloads
             }
             catch (OperationCanceledException) { }
         }
-        private void StopDownloads()
+        private async Task StopDownloadsAsync()
         {
             _cts.Cancel();
+
+            try
+            {
+                await Task.WhenAll(_workers);
+            }
+            catch (OperationCanceledException) { }
+
+            _workers.Clear();
             _cts = new CancellationTokenSource();
         }
         public void PauseDownloads()
@@ -1578,19 +1615,27 @@ namespace Mari_Downloads
         {
             foreach (DataGridViewRow row in _urls.Rows)
             {
-                if (row.IsNewRow) continue;
-
-                string status = row.Cells["Status"].Value?.ToString();
-
-                if (status == "Sleeping")
-                {
-                    string url = row.Cells["Url"].Value?.ToString();
-                    var u = new Manager.Url(url);
-
-                    UpdateRowStatus(row, "Queued");
-                    _downloadChannel.Writer.TryWrite((u, row));
-                }
+                DownloadRow(row);
             }
+        }
+
+        private void DownloadRow(DataGridViewRow row)
+        {
+            if (row.IsNewRow) return;
+
+            string status = row.Cells["Status"].Value?.ToString();
+
+            if (status == "Sleeping")
+            {
+                string url = row.Cells["Url"].Value?.ToString();
+                var u = new Manager.Url(url);
+
+                row.Cells["Site"].Value = u.ExtractSiteName();
+
+                UpdateRowStatus(row, "Queued");
+                _downloadChannel.Writer.TryWrite((u, row));
+            }
+
             UrlsStatusUpdate();
         }
 
@@ -1885,7 +1930,7 @@ namespace Mari_Downloads
         private Control[] BuildFilePath(Manager.Argument arg, Action onChanged)
         {
             TextBox tb = new TextBox { Text = arg.Value, Size = new Size(200, 30) };
-            Button btn = new Button { Text = "...", Size = new Size(35, 28) };
+            Button btn = new Button { BackgroundImage = GetMedia("Folder"), BackgroundImageLayout = ImageLayout.Stretch, Size = new Size(35, 28) };
 
             tb.TextChanged += (s, e) => { arg.Value = tb.Text; onChanged(); };
 
@@ -1909,7 +1954,7 @@ namespace Mari_Downloads
         private Control[] BuildFolderPath(Manager.Argument arg, Action onChanged)
         {
             TextBox tb = new TextBox { Text = arg.Value, Size = new Size(200, 28) };
-            Button btn = new Button { BackgroundImage = Image.FromFile("media/folder.png"), BackgroundImageLayout = ImageLayout.Stretch, Size = new Size(35, 28) };
+            Button btn = new Button { BackgroundImage = GetMedia("Folder"), BackgroundImageLayout = ImageLayout.Stretch, Size = new Size(35, 28) };
 
             tb.TextChanged += (s, e) => { arg.Value = tb.Text; onChanged(); };
 
@@ -1983,27 +2028,27 @@ namespace Mari_Downloads
 
             ToolStripButton UrlsShow = new ToolStripButton
             {
-                Image = Image.FromFile("media/icon.png")
+                Image = GetMedia("Icon"),
             };
             UrlsShow.Click += (sender, e) => { MiniPanelManager.Show(UrlPnl); };
 
             ToolStripButton Config = new ToolStripButton
             {
-                Image = Image.FromFile("media/config.png"),
+                Image = GetMedia("Config"),
                 Alignment = ToolStripItemAlignment.Right
             };
             Config.Click += (sender, e) => { MiniPanelManager.Show(AppConfiguration); };
 
             ToolStripButton Args = new ToolStripButton
             {
-                Image = Image.FromFile("media/icon.png"),
+                Image = GetMedia("Icon"),
                 Alignment = ToolStripItemAlignment.Left
             };
             Args.Click += (sender, e) => { MiniPanelManager.Show(Arguments_GDL); };
 
             ToolStripButton Filters = new ToolStripButton
             {
-                Image = Image.FromFile("media/icon.png"),
+                Image = GetMedia("Icon"),
                 Alignment = ToolStripItemAlignment.Left
             };
             Filters.Click += (sender, e) => { MiniPanelManager.Show(Alias_Override); };
@@ -2141,28 +2186,35 @@ namespace Mari_Downloads
                 _urls.Rows.RemoveAt(hit.RowIndex);
             };
 
-            // Doble click izquierdo en celda Url → abrir en navegador
+            // Doble click izquierdo en celda Url → abrir en navegador, Iniciar Descarga individual
             _urls.CellDoubleClick += (s, e) =>
             {
                 if (e.RowIndex < 0 || e.ColumnIndex < 0) return;
 
                 var col = _urls.Columns[e.ColumnIndex];
-                if (col.Name == "Url")
+
+                switch (col.Name)
                 {
-                    string url = _urls.Rows[e.RowIndex].Cells["Url"].Value?.ToString();
-                    if (string.IsNullOrWhiteSpace(url)) return;
+                    case "Url":
+                        string url = _urls.Rows[e.RowIndex].Cells["Url"].Value?.ToString();
+                        if (string.IsNullOrWhiteSpace(url)) return;
 
-                    Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
-                }
-                if (col.Name == "Site")
-                {
-                    string status = _urls.Rows[e.RowIndex].Cells["Status"].Value?.ToString();
-                    if (string.IsNullOrWhiteSpace(status) || status != "Error") return;
+                        Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+                        break;
 
-                    var row = _urls.Rows[e.RowIndex];
+                    case "Site":
+                        string status = _urls.Rows[e.RowIndex].Cells["Status"].Value?.ToString();
+                        var row = _urls.Rows[e.RowIndex];
+               
+                        if (status == "Error")
+                        {
+                            UpdateRowStatus(row, "Sleeping");
+                            DownloadRow(row);
+                        }
+                        if(status == "Sleeping") 
+                            DownloadRow(row);
 
-                    UpdateRowStatus(row, "Sleeping");
-                    Start();
+                        break;
                 }
             };
 
@@ -2253,7 +2305,7 @@ namespace Mari_Downloads
             clearMenu.AddRow(new Control[] { ClearSleeping });
             clearMenu.AddRow(new Control[] { ClearDownloading });
             clearMenu.AddRow(new Control[] { ClearQueued });
-            clearMenu.AddRow(new Control[] { ClearError });
+            clearMenu.AddRow([ClearError]);
 
             Button pauseResume = new Button
             {
@@ -2281,7 +2333,7 @@ namespace Mari_Downloads
                 Text = "Cancel",
                 TextAlign = ContentAlignment.MiddleCenter
             };
-            cancel.Click += (e, r) =>
+            cancel.Click += async (e, r) =>
             {
                 var result = MessageBox.Show(
                     "Cancel all active downloads?\nQueued and downloading URLs will be reset to Sleeping.",
@@ -2292,7 +2344,6 @@ namespace Mari_Downloads
 
                 if (result != DialogResult.Yes) return;
 
-                // Si estaba pausado, resumir para que los workers no queden colgados
                 bool wasPaused = !_pauseEvent.IsSet;
                 if (wasPaused)
                 {
@@ -2300,13 +2351,13 @@ namespace Mari_Downloads
                     pauseResume.Text = "Pause";
                 }
 
-                StopDownloads();
+                await StopDownloadsAsync();
                 StartWorkers();
 
-                // Resetear rows que quedaron en Queued o Downloading a Sleeping
                 foreach (DataGridViewRow row in _urls.Rows)
                 {
                     if (row.IsNewRow) continue;
+
                     string status = row.Cells["Status"].Value?.ToString();
                     if (status == "Queued" || status == "Downloading")
                         UpdateRowStatus(row, "Sleeping");
@@ -2347,7 +2398,7 @@ namespace Mari_Downloads
                     return;
                 }
 
-                string filename = $"export-{DateTime.Now:yyyy-MM-dd_HH.mm.ss}.txt";
+                string filename = $"{DateTime.Now:yyyy-MM-dd_HH.mm.ss}_Urls.{urls.Count}.txt";
                 string exportDir = Path.Combine(Environment.CurrentDirectory, "Exports");
                 Directory.CreateDirectory(exportDir);
                 string fullPath = Path.Combine(exportDir, filename);
@@ -2409,7 +2460,49 @@ namespace Mari_Downloads
             exportMenu.AddRow(new Control[] { ExportQueued });
             exportMenu.AddRow(new Control[] { ExportError });
 
-            Control[] Down = new Control[] { export, clear, pauseResume, cancel, autoStart, start };
+            Button retry = new Button { Size = new Size(90, 35), Text = "Retry" };
+
+            retry.Click += (s, e) =>
+            {
+                foreach (DataGridViewRow row in _urls.Rows)
+                {
+                    if (row.IsNewRow) continue;
+
+                    string status = row.Cells["Status"].Value?.ToString();
+
+                    bool shouldRetry =
+                        (status == "Done" && Properties.Settings.Default.RetryDone) ||
+                        (status == "Error" && Properties.Settings.Default.RetryErrors);
+
+                    if (!shouldRetry) continue;
+
+                    UpdateRowStatus(row, "Sleeping");
+                }
+
+                Start();
+            };
+
+            MiniMenuPanel RetryMenu = new MiniMenuPanel(retry);
+
+            CheckBox RetryDone = new CheckBox { Text = "Done", Checked = Properties.Settings.Default.RetryDone, TextAlign = ContentAlignment.MiddleLeft, CheckAlign = ContentAlignment.MiddleLeft, AutoSize = true };
+            CheckBox RetryError = new CheckBox { Text = "Error", Checked = Properties.Settings.Default.RetryErrors, TextAlign = ContentAlignment.MiddleLeft, CheckAlign = ContentAlignment.MiddleLeft, AutoSize = true };
+
+            RetryDone.CheckedChanged += (s, e) =>
+            {
+                Properties.Settings.Default.RetryDone = RetryDone.Checked;
+                Properties.Settings.Default.Save();
+            };
+
+            RetryError.CheckedChanged += (s, e) =>
+            {
+                Properties.Settings.Default.RetryErrors = RetryError.Checked;
+                Properties.Settings.Default.Save();
+            };
+
+            RetryMenu.AddRow(new Control[] { RetryDone });
+            RetryMenu.AddRow(new Control[] { RetryError });
+
+            Control[] Down = [retry, export, clear, pauseResume, cancel, autoStart, start];
 
 
             urlpnl.SetMainControl(_urls);
@@ -3091,6 +3184,7 @@ namespace Mari_Downloads
             return null;
         }
 
+        private List<Task> _workers = new();
         private SemaphoreSlim _semaphore;
         private readonly object _semaphoreLock = new();
         private int _maxDownloads;
@@ -3119,6 +3213,23 @@ namespace Mari_Downloads
         MiniPanel Rate_Limiter;
         MiniPanel YtSites_Panel;
         MiniPanel RegexFilters_Panel;
+
+        Dictionary<string,string> Media = new Dictionary<string, string>
+        {
+            { "Icon", "icon.png" },
+            { "IconIco", "icon.ico" },
+            { "Folder", "folder.png" },
+            { "Config", "config.png" },
+            { "Clear", "clear.png" }
+        };
+
+        private Image GetMedia(string key)
+        {
+            string path = Media[key];
+            if (Media.ContainsKey(key))
+                path = Path.Combine(Environment.CurrentDirectory, "media", Media[key]);
+            return Image.FromFile(path);
+        }
 
         private async void Main_Load(object sender, EventArgs e)
         {
