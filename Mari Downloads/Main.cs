@@ -16,6 +16,7 @@ using System.Text.RegularExpressions;
 using System.Threading.Channels;
 using System.Windows.Forms;
 using Windows.Devices.Display.Core;
+using Windows.UI.Notifications;
 using WK.Libraries.SharpClipboardNS;
 using static Mari_Downloads.Main;
 using static Mari_Downloads.Main.Manager;
@@ -546,10 +547,23 @@ namespace Mari_Downloads
             public static void Show(
             string title,
             string desc,
+            Type.NotifType type,
             ToastDuration duration = ToastDuration.Short,
             Dictionary<string, string>? args = null)
             {
                 if (!Properties.Settings.Default.ShowNotifs)
+                    return;
+
+                bool show = type switch
+                {
+                    Notifications.Type.NotifType.Export => Properties.Settings.Default.ExportNotifications,
+                    Notifications.Type.NotifType.Misc => Properties.Settings.Default.MiscNotifications,
+                    Notifications.Type.NotifType.MinorError => Properties.Settings.Default.MinorErrorNotifications,
+                    Notifications.Type.NotifType.Dependencies => Properties.Settings.Default.DependencyNotifications,
+                    _ => Properties.Settings.Default.ShowNotifs,
+                };
+
+                if (!show)
                     return;
 
                 try
@@ -578,6 +592,31 @@ namespace Mari_Downloads
                         "Notification Error",
                         MessageBoxButtons.OK,
                         MessageBoxIcon.Error);
+                }
+            }
+            public class Type
+            {
+                public enum NotifType
+                {
+                    Misc,
+                    Export,
+                    Dependencies,
+                    MinorError
+                }
+                public NotifType Current { get; private set; } = NotifType.Misc;
+
+                public bool Is(NotifType type) => Current == type;
+
+                public string GetDisplay()
+                {
+                    return Current switch
+                    {
+                        NotifType.Export => "Export",
+                        NotifType.Misc => "Misc",
+                        NotifType.Dependencies => "Dependencies",
+                        NotifType.MinorError => "Minor Error",
+                        _ => "Unknown"
+                    };
                 }
             }
         }
@@ -945,7 +984,14 @@ namespace Mari_Downloads
                         File.WriteAllText(file,
                         JsonSerializer.Serialize(logs, options));
                     }
-                    catch(Exception e) { MessageBox.Show(e.Message); }
+                    catch 
+                    {
+                        Notifications.Show(
+                            "Error saving log",
+                            "An Url couldn´t be saved.",
+                            Notifications.Type.NotifType.MinorError
+                        );
+                    }
                 }
             }
             public class Status
@@ -1650,6 +1696,39 @@ namespace Mari_Downloads
             int[] count = UrlCount();
             StatusChange($"Total: {count[0]} | Sleeping: {count[1]} | Downloading: {count[2]} | Done: {count[3]} | Queued: {count[4]} | Errors: {count[5]}");
         }
+        private void Scrollbar(int ease)
+        {
+            if (_urls.Rows.Count == 0)
+                return;
+
+            int current = _urls.FirstDisplayedScrollingRowIndex;
+            int lastRow = _urls.Rows.Count - 1;
+            int target = lastRow + ease;
+
+            if(current++ == lastRow)
+            {
+                _urls.FirstDisplayedScrollingRowIndex = lastRow;
+                return;
+            }
+            else if (current == 0)
+            {
+                _urls.FirstDisplayedScrollingRowIndex = 0;
+                return;
+            }
+            else
+            {
+                target = current + ease;
+            }
+
+            if (target < 0)
+                target = 0;
+
+            if (target > lastRow)
+                target = lastRow;
+
+            if (target > 1)
+                _urls.FirstDisplayedScrollingRowIndex = target;
+        }
         private void ChangeSimultaneousDownloads(int newValue)
         {
             int diff = newValue - _maxDownloads;
@@ -1822,7 +1901,8 @@ namespace Mari_Downloads
                 {
                     Notifications.Show(
                         "Update Available",
-                        $"gallery-dl update available\nInstalled: {_galleryInstalled}\nLatest: {_galleryLatest}"
+                        $"gallery-dl update available\nInstalled: {_galleryInstalled}\nLatest: {_galleryLatest}",
+                        Notifications.Type.NotifType.Dependencies
                     );
                     GDLstate.Text = $"{_galleryInstalled}: Outdated. {_galleryLatest}: Lastest";
                     GDLstate.ForeColor = Color.Red;
@@ -1844,7 +1924,8 @@ namespace Mari_Downloads
                 {
                     Notifications.Show(
                         "Update Available",
-                        $"YT-dlp update available\nInstalled: {_ytdlpInstalled}\nLatest: {_ytdlpLatest}"
+                        $"YT-dlp update available\nInstalled: {_ytdlpInstalled}\nLatest: {_ytdlpLatest}",
+                        Notifications.Type.NotifType.Dependencies
                     );
                     YTstate.Text = $"{_ytdlpInstalled}: Outdated  {_ytdlpLatest}: Lastest";
                     YTstate.ForeColor = Color.Red;
@@ -2076,9 +2157,17 @@ namespace Mari_Downloads
 
                 Task.Run(() =>
                 {
-                    var urls = Manager.Url.UrlExtractor(text);
-                    foreach (var url in urls)
-                        AddUrl(url);
+                    var urls = Manager.Url.UrlExtractor(text)
+                        .Distinct()
+                        .ToList();
+
+                    if (urls.Count == 0) return;
+
+                    BeginInvoke(() =>
+                    {
+                        foreach (var url in urls)
+                            AddUrl(url);
+                    });
                 });
             };
 
@@ -2114,15 +2203,16 @@ namespace Mari_Downloads
             {
                 UrlsStatusUpdate();
 
-                if (Properties.Settings.Default.AutoStart == true)
-                {
+                Scrollbar(1);
+
+                if (Properties.Settings.Default.AutoStart)
                     Start();
-                }
             };
 
             _urls.RowsRemoved += (s, e) =>
             {
                 UrlsStatusUpdate();
+                Scrollbar(-1);
             };
 
             // Click izquierdo en celda Status con error → mostrar output
@@ -2336,7 +2426,7 @@ namespace Mari_Downloads
             cancel.Click += async (e, r) =>
             {
                 var result = MessageBox.Show(
-                    "Cancel all active downloads?\nQueued and downloading URLs will be reset to Sleeping.",
+                    "Cancel all queued downloads?\nQueued URLs will be reset to Sleeping.\nDownloading ones will be finished first",
                     "Cancel Downloads",
                     MessageBoxButtons.YesNo,
                     MessageBoxIcon.Warning
@@ -2345,10 +2435,10 @@ namespace Mari_Downloads
                 if (result != DialogResult.Yes) return;
 
                 bool wasPaused = !_pauseEvent.IsSet;
-                if (wasPaused)
+                if (!wasPaused)
                 {
-                    ResumeDownloads();
-                    pauseResume.Text = "Pause";
+                    PauseDownloads();
+                    pauseResume.Text = "Resume";
                 }
 
                 await StopDownloadsAsync();
@@ -2359,7 +2449,7 @@ namespace Mari_Downloads
                     if (row.IsNewRow) continue;
 
                     string status = row.Cells["Status"].Value?.ToString();
-                    if (status == "Queued" || status == "Downloading")
+                    if (status == "Queued")
                         UpdateRowStatus(row, "Sleeping");
                 }
 
@@ -2394,7 +2484,7 @@ namespace Mari_Downloads
 
                 if (urls.Count == 0)
                 {
-                    Notifications.Show("Nothing to export", "There are no URL's to export");
+                    Notifications.Show("Nothing to export", "There are no URL's to export", Notifications.Type.NotifType.Export);
                     return;
                 }
 
@@ -2407,6 +2497,7 @@ namespace Mari_Downloads
                 Notifications.Show(
                     "Exported Successfully",
                     $"Exported to {filename}",
+                    Notifications.Type.NotifType.Export,
                     ToastDuration.Short,
                     new Dictionary<string, string>
                     {
@@ -2454,11 +2545,11 @@ namespace Mari_Downloads
                 Properties.Settings.Default.Save();
             };
 
-            exportMenu.AddRow(new Control[] { ExportDone });
-            exportMenu.AddRow(new Control[] { ExportSleeping });
-            exportMenu.AddRow(new Control[] { ExportDownloading });
-            exportMenu.AddRow(new Control[] { ExportQueued });
-            exportMenu.AddRow(new Control[] { ExportError });
+            exportMenu.AddRow([ExportDone]);
+            exportMenu.AddRow([ExportSleeping]);
+            exportMenu.AddRow([ExportDownloading]);
+            exportMenu.AddRow([ExportQueued]);
+            exportMenu.AddRow([ ExportError ]);
 
             Button retry = new Button { Size = new Size(90, 35), Text = "Retry" };
 
@@ -2574,7 +2665,7 @@ namespace Mari_Downloads
                 {
                     GetDependenciesVersions();
                     DependenciesCheck();
-                    Notifications.Show("Gallery-dl Installed", "Gallery-dl Installed Succesfully");
+                    Notifications.Show("Gallery-dl Installed", "Gallery-dl Installed Succesfully", Notifications.Type.NotifType.Dependencies);
                 }
             };
             Button GDL_Update = new Button { Text = "Update Gallery-Dl", Size = new Size(140, 35), TextAlign = ContentAlignment.MiddleCenter };
@@ -2584,7 +2675,7 @@ namespace Mari_Downloads
                 {
                     GetDependenciesVersions();
                     DependenciesCheck();
-                    Notifications.Show("Gallery-dl Updated", "Gallery-dl Updated Succesfully");
+                    Notifications.Show("Gallery-dl Updated", "Gallery-dl Updated Succesfully", Notifications.Type.NotifType.Dependencies);
                 }
             };
             Control[] GDL_Btns = { GDL_install,GDL_Update };
@@ -2601,7 +2692,7 @@ namespace Mari_Downloads
                 {
                     GetDependenciesVersions();
                     DependenciesCheck();
-                    Notifications.Show("YT-dlp Installed", "YT-dlp Installed Succesfully");
+                    Notifications.Show("YT-dlp Installed", "YT-dlp Installed Succesfully", Notifications.Type.NotifType.Dependencies);
                 }
             };
             Button YT_Update = new Button { Text = "Update YT-dlp", Size = new Size(140, 35), TextAlign = ContentAlignment.MiddleCenter };
@@ -2611,7 +2702,7 @@ namespace Mari_Downloads
                 {
                     GetDependenciesVersions();
                     DependenciesCheck();
-                    Notifications.Show("YT-dlp Updated", "YT-dlp Updated Succesfully");
+                    Notifications.Show("YT-dlp Updated", "YT-dlp Updated Succesfully", Notifications.Type.NotifType.Dependencies);
                 }
             };
             Control[] YT_Btns = { YT_install, YT_Update };

@@ -622,5 +622,53 @@ namespace Mari_Downloads.Properties {
                 this["RetryErrors"] = value;
             }
         }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("True")]
+        public bool ExportNotifications {
+            get {
+                return ((bool)(this["ExportNotifications"]));
+            }
+            set {
+                this["ExportNotifications"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("True")]
+        public bool MiscNotifications {
+            get {
+                return ((bool)(this["MiscNotifications"]));
+            }
+            set {
+                this["MiscNotifications"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("True")]
+        public bool MinorErrorNotifications {
+            get {
+                return ((bool)(this["MinorErrorNotifications"]));
+            }
+            set {
+                this["MinorErrorNotifications"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("True")]
+        public bool DependencyNotifications {
+            get {
+                return ((bool)(this["DependencyNotifications"]));
+            }
+            set {
+                this["DependencyNotifications"] = value;
+            }
+        }
     }
 }
