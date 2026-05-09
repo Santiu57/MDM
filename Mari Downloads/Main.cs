@@ -66,8 +66,17 @@ namespace Mari_Downloads
                 }));
             };
 
+            InitializeComponent();
+            
             MediaCheck();
             MiniPanelManager.SetHost(this);
+            
+            if (string.IsNullOrEmpty(Properties.Settings.Default.DownloadPath))
+                Properties.Settings.Default.DownloadPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "gallery-dl");
+            if (string.IsNullOrEmpty(Properties.Settings.Default.YTOutput))
+                Properties.Settings.Default.YTOutput = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "gallery-dl", "youtube");
+            if (Properties.Settings.Default.MainFont.Size <= 6)
+                Properties.Settings.Default.MainFont = new Font(Properties.Settings.Default.MainFont.Name, 7);
 
             //Filters Loader
             Filter.Loader.Load("filters.json");
@@ -88,25 +97,23 @@ namespace Mari_Downloads
             Rate_Limiter = Rate();
             YtSites_Panel = YtSitesPanel();
             RegexFilters_Panel = RegexFilters();
+            
 
-            InitializeComponent();
             BaseComponents();
             SetWindowConfig();
             MiniPanelManager.Show(UrlPnl);
+            
             AppCustomization.FontChange(this, Properties.Settings.Default.MainFont);
             AppCustomization.ColorComponents(this, Properties.Settings.Default.MainBackColor, Properties.Settings.Default.MainForeColor);
+            
+            // Ensure controls that don't explicitly set AutoSize will auto-size
+            AppCustomization.EnsureAutoSize(this);
 
             _downloadChannel = Channel.CreateUnbounded<(Manager.Url, DataGridViewRow)>();
 
             _maxDownloads = Properties.Settings.Default.SimultaneousDownloads;
             _semaphore = new SemaphoreSlim(_maxDownloads);
-
             StartWorkers();
-
-            if(string.IsNullOrEmpty(Properties.Settings.Default.DownloadPath))
-                Properties.Settings.Default.DownloadPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "gallery-dl");
-            if (string.IsNullOrEmpty(Properties.Settings.Default.YTOutput))
-                Properties.Settings.Default.YTOutput = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "gallery-dl", "youtube");
         }
 
         //kills all proccesses when the app closes
@@ -354,6 +361,8 @@ namespace Mari_Downloads
                 if (_host == null)
                     throw new Exception("MiniPanelManager host not set");
 
+                if (_current == panel)
+                    return;
 
                 foreach (var p in _panels)
                     p.Visible = false;
@@ -624,6 +633,23 @@ namespace Mari_Downloads
         //Customization
         public static class AppCustomization
         {
+            [DllImport("user32.dll")]
+            private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
+            private const int WM_SETREDRAW = 0x000B;
+
+            private static void SetRedraw(Control control, bool enable)
+            {
+                try
+                {
+                    if (!control.IsHandleCreated)
+                        control.CreateControl();
+
+                    SendMessage(control.Handle, WM_SETREDRAW, new IntPtr(enable ? 1 : 0), IntPtr.Zero);
+                }
+                catch { }
+            }
+
             public static void TraverseAllControls(Control parent, Action<Control> action)
             {
                 action(parent);
@@ -656,27 +682,41 @@ namespace Mari_Downloads
                     }
                 });
             }
+            public static void EnsureAutoSize(Control parent)
+            {
+                TraverseAllControls(parent, control =>
+                {
+                    try
+                    {
+                        if (control is DataGridView) return;
+                        var prop = control.GetType().GetProperty("AutoSize");
+                        if (prop != null && prop.CanWrite)
+                        {
+                            // Only set if currently false to avoid overwriting explicit true values
+                            var current = (bool)prop.GetValue(control);
+                            if (!current)
+                                prop.SetValue(control, true);
+                        }
+                    }
+                    catch { }
+                });
+            }
             public static void FontChange(Control form, Font font)
             {
                 if (font == null)
                     return;
 
-                TraverseAllControls(form, control =>
-                {
-                    control.Font = null;
-                });
-
-                var newFont = font;
-
-                float scale = newFont.Size / form.Font.Size;
-
                 form.SuspendLayout();
 
-                form.Font = newFont;
-                form.Scale(new SizeF(scale, scale));
-
-                form.ResumeLayout();
-                ForceToolStripRefresh(form);
+                try
+                {
+                    form.Font = font;
+                }
+                finally
+                {
+                    form.ResumeLayout(true);
+                    form.Refresh();
+                }
             }
             public static void ForceToolStripRefresh(Control parent)
             {
@@ -829,7 +869,7 @@ namespace Mari_Downloads
                     }
 
                     builder.AddAppLogoOverride(
-                        new Uri(Path.Combine(Environment.CurrentDirectory, "media/icon.png")),
+                        new Uri(Path.Combine(Application.StartupPath, "media/icon.png")),
                         ToastGenericAppLogoCrop.Default);
 
                     builder.SetToastDuration(duration);
@@ -1207,7 +1247,7 @@ namespace Mari_Downloads
             public static class Log
             {
                 static string file =
-                    Path.Combine(Environment.CurrentDirectory, "log.json");
+                    Path.Combine(Application.StartupPath, "log.json");
 
                 public static void Save(Url url)
                 {
@@ -1238,7 +1278,7 @@ namespace Mari_Downloads
                     }
                     catch 
                     {
-                        
+                        Save(url);
                     }
                 }
             }
@@ -1436,7 +1476,7 @@ namespace Mari_Downloads
 
             public static class GalleryDLArgs
             {
-                static string file = Path.Combine(Environment.CurrentDirectory, "args_gdl.json");
+                static string file = Path.Combine(Application.StartupPath, "args_gdl.json");
                 public static ArgumentProfile Profile = new ArgumentProfile();
 
                 public static void Init()
@@ -1522,7 +1562,7 @@ namespace Mari_Downloads
 
             public static class YTDLPArgs
             {
-                static string file = Path.Combine(Environment.CurrentDirectory, "args_ytdlp.json");
+                static string file = Path.Combine(Application.StartupPath, "args_ytdlp.json");
                 public static ArgumentProfile Profile = new ArgumentProfile();
 
                 public static void Init()
@@ -1738,7 +1778,7 @@ namespace Mari_Downloads
                 return;
             }
 
-            if (!IsRowAlive(row)) return;
+            if (!IsRowAlive(row) || row.Cells["Status"].Value == "Done") return;
 
             row.Cells["Status"].Value = status;
 
@@ -2525,68 +2565,92 @@ namespace Mari_Downloads
                 Scrollbar(-1);
             };
 
-            // Click izquierdo en celda → mostrar output
-            _urls.CellClick += (s, e) =>
-            {
-                if (e.RowIndex < 0)
-                    return;
-
-                var row = _urls.Rows[e.RowIndex];
-
-                if (!_openOutputs.TryGetValue(row, out var form) || form.IsDisposed)
-                {
-                    form = new ScrollableMessageBox.OutputForm();
-
-                    _openOutputs[row] = form;
-
-                    form.FormClosed += (_, __) =>
-                    {
-                        _openOutputs.Remove(row);
-                    };
-
-                    form.Show();
-                }
-
-                form.SetText(row.Tag as string ?? "No output captured.");
-            };
-
-            // Click derecho sobre row → eliminar
             _urls.MouseClick += (s, e) =>
             {
-                if (e.Button != MouseButtons.Right) return;
+                bool right = e.Button == MouseButtons.Right;
 
                 var hit = _urls.HitTest(e.X, e.Y);
-                if (hit.RowIndex < 0) return;
 
-                _urls.CancelEdit();
+                if (hit.RowIndex < 0 || hit.ColumnIndex < 0)
+                    return;
 
                 var row = _urls.Rows[hit.RowIndex];
-                if (!IsRowAlive(row)) return;
+                var col = _urls.Columns[hit.ColumnIndex].Name;
 
                 string status = row.Cells["Status"].Value?.ToString();
 
-                bool safeToDelete = status == "Done" || status == "Error";
+                // Click derecho sobre row → eliminar
+                bool eliminar = right;
 
-                if (!safeToDelete)
+                if (eliminar)
                 {
-                    string warning = status switch
+                    _urls.CancelEdit();
+
+                    if (!IsRowAlive(row))
+                        return;
+
+                    bool safeToDelete =
+                        status == "Done" ||
+                        status == "Error";
+
+                    if (!safeToDelete)
                     {
-                        "Downloading" => "This URL is currently downloading.{Environment.NewLine}Removing it will not stop the process, but the row will be gone.{Environment.NewLine}Remove anyway?",
-                        "Queued" => "This URL is queued and will start soon.{Environment.NewLine}Removing it will not cancel the download if it has already started.{Environment.NewLine}Remove anyway?",
-                        "Sleeping" => "This URL hasn't started yet.{Environment.NewLine}Remove it?",
-                        _ => "Remove this URL?"
-                    };
+                        string warning = status switch
+                        {
+                            "Downloading" =>
+                                $"This URL is currently downloading.{Environment.NewLine}" +
+                                $"Removing it will not stop the process, but the row will be gone.{Environment.NewLine}" +
+                                $"Remove anyway?",
 
-                    var result = ScrollableMessageBox.Show(
-                        warning,
-                        "Remove URL",
-                        MessageBoxButtons.YesNo
-                    );
+                            "Queued" =>
+                                $"This URL is queued and will start soon.{Environment.NewLine}" +
+                                $"Removing it will not cancel the download if it has already started.{Environment.NewLine}" +
+                                $"Remove anyway?",
 
-                    if (result != DialogResult.Yes) return;
+                            "Sleeping" =>
+                                $"This URL hasn't started yet.{Environment.NewLine}" +
+                                $"Remove it?",
+
+                            _ =>
+                                "Remove this URL?"
+                        };
+
+                        var result = ScrollableMessageBox.Show(
+                            warning,
+                            "Remove URL",
+                            MessageBoxButtons.YesNo
+                        );
+
+                        if (result != DialogResult.Yes)
+                            return;
+                    }
+
+                    _urls.Rows.RemoveAt(hit.RowIndex);
                 }
 
-                _urls.Rows.RemoveAt(hit.RowIndex);
+                // Click izquierdo en Status → mostrar output
+                bool output =
+                    !right &&
+                    col == "Status";
+
+                if (output)
+                {
+                    if (!_openOutputs.TryGetValue(row, out var form) || form.IsDisposed)
+                    {
+                        form = new ScrollableMessageBox.OutputForm();
+
+                        _openOutputs[row] = form;
+
+                        form.FormClosed += (_, __) =>
+                        {
+                            _openOutputs.Remove(row);
+                        };
+
+                        form.Show();
+                    }
+
+                    form.SetText(row.Tag as string ?? "Nothing here yet.");
+                }
             };
 
             // Doble click izquierdo en celda Url → abrir en navegador, Iniciar Descarga individual
@@ -2642,7 +2706,7 @@ namespace Mari_Downloads
                 Start();
             };
 
-            Button clear = new Button { BackgroundImage = Image.FromFile("media/clear.png"), BackgroundImageLayout = ImageLayout.Stretch, Size = new Size(35, 35) };
+            Button clear = new Button {Name = "Clear", BackgroundImage = GetMedia("Clear"), BackgroundImageLayout = ImageLayout.Stretch, Size = new Size(35, 35), MinimumSize = new Size(35, 35), };
             clear.Click += (s, e) =>
             {
                 for (int i = _urls.Rows.Count - 1; i >= 0; i--)
@@ -2808,10 +2872,10 @@ namespace Mari_Downloads
                 }
 
                 string filename = $"{DateTime.Now:yyyy-MM-dd_HH.mm.ss}_Urls.{urls.Count}.txt";
-                string exportDir = Path.Combine(Environment.CurrentDirectory, "Exports");
+                string exportDir = Path.Combine(Application.StartupPath, "Exports");
                 Directory.CreateDirectory(exportDir);
                 string fullPath = Path.Combine(exportDir, filename);
-                File.WriteAllLines(fullPath, urls);
+                File.WriteAllLinesAsync(fullPath, urls);
 
                 Notifications.Show(
                     "Exported Successfully",
@@ -3098,9 +3162,12 @@ namespace Mari_Downloads
 
                     if (fd.ShowDialog() == DialogResult.OK)
                     {
-                        Preview.Font = fd.Font;
-                        Properties.Settings.Default.MainFont = fd.Font;
+                        Font font = fd.Font;
+                        if (font.Size <= 6)
+                            font = new Font(font.Name, 7);
+                        Properties.Settings.Default.MainFont = font;
                         Properties.Settings.Default.Save();
+                        AppCustomization.FontChange(this, Properties.Settings.Default.MainFont);
                     }
                 }
             };
@@ -3286,7 +3353,7 @@ namespace Mari_Downloads
             dgv.Columns.Add(new DataGridViewTextBoxColumn { Name = "Limit", HeaderText = "Limit" });
 
             foreach (var r in Manager.Filter.Engine.Entries.Where(e => e.Type == "ratelimit"))
-                dgv.Rows.Add(r.Site, r.Replace);
+                dgv.Rows.Add(r.Site, r.Limit);
 
             void SaveRates()
             {
@@ -3648,7 +3715,7 @@ namespace Mari_Downloads
         {
             string path = Media[key];
             if (Media.ContainsKey(key))
-                path = Path.Combine(Environment.CurrentDirectory, "media", Media[key]);
+                path = Path.Combine(Application.StartupPath, "media", Media[key]);
             return Image.FromFile(path);
         }
 
