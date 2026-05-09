@@ -8,6 +8,7 @@ using System.Data;
 using System.Diagnostics;
 using System.DirectoryServices.ActiveDirectory;
 using System.Drawing;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography.X509Certificates;
 using System.Security.Policy;
 using System.Text;
@@ -34,7 +35,7 @@ namespace Mari_Downloads
             {
                 ToastArguments args = ToastArguments.Parse(toastArgs.Argument);
 
-                Application.OpenForms?[0]?.Invoke(new Action(() =>
+                Application.OpenForms?[0]?.BeginInvoke(new Action(() =>
                 {
                     var window = Application.OpenForms[0];
 
@@ -57,6 +58,10 @@ namespace Mari_Downloads
                                 UseShellExecute = true
                             });
                         }
+                    }
+                    if (args.Contains("action") && args["action"] == "update")
+                    {
+                        MiniPanelManager.Show(AppDependencies);
                     }
                 }));
             };
@@ -104,8 +109,100 @@ namespace Mari_Downloads
                 Properties.Settings.Default.YTOutput = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "gallery-dl", "youtube");
         }
 
-        //Panel Constructor
+        //kills all proccesses when the app closes
+        public static class JobManager
+        {
+            private static IntPtr _jobHandle;
 
+            static JobManager()
+            {
+                _jobHandle = CreateJobObject(IntPtr.Zero, null!);
+
+                var info = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION();
+                info.BasicLimitInformation.LimitFlags =
+                    0x2000; // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+
+                int length = Marshal.SizeOf(info);
+                IntPtr ptr = Marshal.AllocHGlobal(length);
+                Marshal.StructureToPtr(info, ptr, false);
+
+                SetInformationJobObject(
+                    _jobHandle,
+                    9,
+                    ptr,
+                    (uint)length);
+
+                Marshal.FreeHGlobal(ptr);
+            }
+
+            public static void Kill()
+            {
+                TerminateJobObject(_jobHandle, 0);
+            }
+
+            public static void AddProcess(Process process)
+            {
+                AssignProcessToJobObject(_jobHandle, process.Handle);
+            }
+
+            [DllImport("kernel32.dll", SetLastError = true)]
+            static extern bool TerminateJobObject(
+            IntPtr hJob,
+            uint uExitCode);
+
+            [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+            static extern IntPtr CreateJobObject(IntPtr lpJobAttributes, string name);
+
+            [DllImport("kernel32.dll")]
+            static extern bool SetInformationJobObject(
+                IntPtr hJob,
+                int infoType,
+                IntPtr lpJobObjectInfo,
+                uint cbJobObjectInfoLength);
+
+            [DllImport("kernel32.dll")]
+            static extern bool AssignProcessToJobObject(
+                IntPtr job,
+                IntPtr process);
+
+            [StructLayout(LayoutKind.Sequential)]
+            struct JOBOBJECT_BASIC_LIMIT_INFORMATION
+            {
+                public long PerProcessUserTimeLimit;
+                public long PerJobUserTimeLimit;
+                public uint LimitFlags;
+                public UIntPtr MinimumWorkingSetSize;
+                public UIntPtr MaximumWorkingSetSize;
+                public uint ActiveProcessLimit;
+                public long Affinity;
+                public uint PriorityClass;
+                public uint SchedulingClass;
+            }
+
+            [StructLayout(LayoutKind.Sequential)]
+            struct IO_COUNTERS
+            {
+                public ulong ReadOperationCount;
+                public ulong WriteOperationCount;
+                public ulong OtherOperationCount;
+                public ulong ReadTransferCount;
+                public ulong WriteTransferCount;
+                public ulong OtherTransferCount;
+            }
+
+            [StructLayout(LayoutKind.Sequential)]
+            struct JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+            {
+                public JOBOBJECT_BASIC_LIMIT_INFORMATION BasicLimitInformation;
+                public IO_COUNTERS IoInfo;
+                public UIntPtr ProcessMemoryLimit;
+                public UIntPtr JobMemoryLimit;
+                public UIntPtr PeakProcessMemoryUsed;
+                public UIntPtr PeakJobMemoryUsed;
+            }
+        }
+
+        //Panel Constructor
         public class MiniPanel : Panel
         {
             private readonly Panel _contentPanel;
@@ -373,7 +470,157 @@ namespace Mari_Downloads
                 _rowsContainer.Controls.Add(row);
             }
         }
-        
+
+        public static class ScrollableMessageBox
+        {
+            public static DialogResult Show(
+                string text,
+                string title = "Message",
+                MessageBoxButtons buttons = MessageBoxButtons.OK
+                )
+            {
+                Form form = new Form();
+                form.Text = title;
+                form.StartPosition = FormStartPosition.CenterScreen;
+                form.Size = new Size(700, 500);
+                form.MinimumSize = new Size(400, 300);
+                form.Icon = new Icon("media/icon.ico");
+
+                TextBox textBox = new TextBox();
+                textBox.Multiline = true;
+                textBox.ReadOnly = true;
+                textBox.ScrollBars = ScrollBars.Vertical;
+                textBox.Dock = DockStyle.Fill;
+                textBox.Text = text;
+
+                FlowLayoutPanel panel = new FlowLayoutPanel();
+                panel.Dock = DockStyle.Bottom;
+                panel.FlowDirection = FlowDirection.RightToLeft;
+                panel.Height = 50;
+                panel.Padding = new Padding(10);
+
+                DialogResult result = DialogResult.None;
+
+                void AddButton(string label, DialogResult dialogResult)
+                {
+                    Button btn = new Button();
+                    btn.Text = label;
+                    btn.DialogResult = dialogResult;
+                    btn.AutoSize = true;
+                    btn.Padding = new Padding(10, 5, 10, 5);
+
+                    btn.Click += (_, __) =>
+                    {
+                        result = dialogResult;
+                        form.Close();
+                    };
+
+                    panel.Controls.Add(btn);
+
+                    if (form.AcceptButton == null)
+                        form.AcceptButton = btn;
+                }
+
+                switch (buttons)
+                {
+                    case MessageBoxButtons.OK:
+                        AddButton("OK", DialogResult.OK);
+                        break;
+
+                    case MessageBoxButtons.OKCancel:
+                        AddButton("Cancelar", DialogResult.Cancel);
+                        AddButton("OK", DialogResult.OK);
+                        break;
+
+                    case MessageBoxButtons.YesNo:
+                        AddButton("No", DialogResult.No);
+                        AddButton("Yes", DialogResult.Yes);
+                        break;
+
+                    case MessageBoxButtons.YesNoCancel:
+                        AddButton("Cancel", DialogResult.Cancel);
+                        AddButton("No", DialogResult.No);
+                        AddButton("Yes", DialogResult.Yes);
+                        break;
+                }
+
+                form.Controls.Add(textBox);
+                form.Controls.Add(panel);
+                AppCustomization.ColorComponents(form, Properties.Settings.Default.MainBackColor, Properties.Settings.Default.MainForeColor);
+                AppCustomization.FontChange(form, Properties.Settings.Default.MainFont);
+
+                form.ShowDialog();
+
+                return result;
+            }
+            public class OutputForm : Form
+            {
+                private readonly TextBox _outputBox;
+
+                public OutputForm()
+                {
+                    Text = "Output";
+                    StartPosition = FormStartPosition.CenterScreen;
+                    Size = new Size(700, 500);
+                    MinimumSize = new Size(400, 300);
+
+                    try
+                    {
+                        Icon = new Icon("media/icon.ico");
+                    }
+                    catch { }
+
+                    _outputBox = new TextBox()
+                    {
+                        Multiline = true,
+                        ReadOnly = true,
+                        ScrollBars = ScrollBars.Both,
+                        Dock = DockStyle.Fill,
+                        WordWrap = false
+                    };
+
+                    Controls.Add(_outputBox);
+
+                    AppCustomization.ColorComponents(
+                        this,
+                        Properties.Settings.Default.MainBackColor,
+                        Properties.Settings.Default.MainForeColor);
+
+                    AppCustomization.FontChange(
+                        this,
+                        Properties.Settings.Default.MainFont);
+                }
+
+                public void SetText(string text)
+                {
+                    if (InvokeRequired)
+                    {
+                        BeginInvoke(() => SetText(text));
+                        return;
+                    }
+
+                    _outputBox.Text = text;
+
+                    _outputBox.SelectionStart = _outputBox.TextLength;
+                    _outputBox.ScrollToCaret();
+                }
+
+                public void AppendLine(string line)
+                {
+                    if (InvokeRequired)
+                    {
+                        BeginInvoke(() => AppendLine(line));
+                        return;
+                    }
+
+                    _outputBox.AppendText(line + Environment.NewLine);
+
+                    _outputBox.SelectionStart = _outputBox.TextLength;
+                    _outputBox.ScrollToCaret();
+                }
+            }
+        }
+
         //Customization
         public static class AppCustomization
         {
@@ -390,6 +637,10 @@ namespace Mari_Downloads
             {
                 TraverseAllControls(parent, control =>
                 {
+                    if (_NoColorControls.Contains(control))
+                    {
+                        return;
+                    }
                     if (control is not Panel)
                     {
                         control.BackColor = back;
@@ -459,17 +710,16 @@ namespace Mari_Downloads
             {
                 if (!File.Exists($"media/{file.Value}"))
                 {
-                    notFoundFiles += $"{file.Value}\n";
+                    notFoundFiles += $"{file.Value}{Environment.NewLine}";
                 }
             }
 
             if (!string.IsNullOrEmpty(notFoundFiles))
             {
-                MessageBox.Show(
-                    $"Required files not found:\n{notFoundFiles}Ensure they exist in the 'media' directory.",
+                ScrollableMessageBox.Show(
+                    $"Required files not found:{Environment.NewLine}{notFoundFiles}Ensure they exist in the 'media' directory.",
                     "File Missing",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Error
+                    MessageBoxButtons.OK
                 );
                 Environment.Exit(1);
             }
@@ -587,11 +837,10 @@ namespace Mari_Downloads
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show(
-                        $"Error showing notification:\n{ex.Message}",
+                    ScrollableMessageBox.Show(
+                        $"Error showing notification:{Environment.NewLine}{ex.Message}",
                         "Notification Error",
-                        MessageBoxButtons.OK,
-                        MessageBoxIcon.Error);
+                        MessageBoxButtons.OK);
                 }
             }
             public class Type
@@ -643,13 +892,17 @@ namespace Mari_Downloads
                     if (string.IsNullOrWhiteSpace(input))
                         return urls;
 
-                    string pattern = @"https?://[^\s<>""'\)\]\}]+";
+                    string pattern = @"https?://[^\s<>""'\]\}]+";
 
                     var matches = Regex.Matches(input, pattern, RegexOptions.IgnoreCase);
 
                     var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-                    char[] trimChars = new[] { '<', '>', '(', ')', '[', ']', '{', '}', '"', '\'', '.', ',', ';', ':', '!', '?' };
+                    char[] trimChars = new[]
+                    {
+                        '<', '>', '[', ']', '{', '}',
+                        '"', '\'', '.', ',', ';', ':', '!', '?'
+                    };
 
                     foreach (Match match in matches)
                     {
@@ -921,11 +1174,10 @@ namespace Mari_Downloads
                         }
                         catch (Exception ex)
                         {
-                            MessageBox.Show(
-                                $"Error saving filters:\n{ex.Message}",
+                            ScrollableMessageBox.Show(
+                                $"Error saving filters:{Environment.NewLine}{ex.Message}",
                                 "Filters Error",
-                                MessageBoxButtons.OK,
-                                MessageBoxIcon.Error
+                                MessageBoxButtons.OK
                             );
                         }
                     }
@@ -986,11 +1238,7 @@ namespace Mari_Downloads
                     }
                     catch 
                     {
-                        Notifications.Show(
-                            "Error saving log",
-                            "An Url couldn´t be saved.",
-                            Notifications.Type.NotifType.MinorError
-                        );
+                        
                     }
                 }
             }
@@ -1027,15 +1275,21 @@ namespace Mari_Downloads
                 }
             }
 
-            public static class Gallery_Dl
+            public static class ProcessRunner
             {
-                public static async Task<(int ExitCode, string Output, string Command)> Run(Url url, string arguments)
+                public static async Task<(int ExitCode, string Output, string Command)> Run(
+                    string exe,
+                    Url url,
+                    string arguments,
+                    Action<string, string>? onOutput = null)
                 {
                     var sb = new StringBuilder();
 
+                    string command = $"{exe} {arguments} {url.url}";
+
                     var startInfo = new ProcessStartInfo()
                     {
-                        FileName = "gallery-dl",
+                        FileName = exe,
                         Arguments = $"{arguments} {url.url}",
                         UseShellExecute = false,
                         CreateNoWindow = true,
@@ -1046,83 +1300,73 @@ namespace Mari_Downloads
                     using var process = new Process();
                     process.StartInfo = startInfo;
 
-                    process.OutputDataReceived += (s, e) => { if (e.Data != null) sb.AppendLine(e.Data); };
-                    process.ErrorDataReceived += (s, e) => { if (e.Data != null) sb.AppendLine(e.Data); };
-
-                    process.Start();
-                    process.BeginOutputReadLine();
-                    process.BeginErrorReadLine();
-                    await process.WaitForExitAsync();
-
-                    return (process.ExitCode, sb.ToString(), $"gallery-dl {arguments} {url.url}");
-                }
-            }
-
-            public static class YT_Dlp
-            {
-                public static async Task<(int ExitCode, string Output, string Command)> Run(Url url, string arguments)
-                {
-                    var sb = new StringBuilder();
-
-                    var startInfo = new ProcessStartInfo()
+                    void HandleLine(string? line)
                     {
-                        FileName = "yt-dlp",
-                        Arguments = $"{arguments} {url.url}",
-                        UseShellExecute = false,
-                        CreateNoWindow = true,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true
-                    };
+                        if (string.IsNullOrWhiteSpace(line))
+                            return;
 
-                    using var process = new Process();
-                    process.StartInfo = startInfo;
+                        lock (sb)
+                        {
+                            sb.AppendLine(line);
+                        }
 
-                    process.OutputDataReceived += (s, e) => { if (e.Data != null) sb.AppendLine(e.Data); };
-                    process.ErrorDataReceived += (s, e) => { if (e.Data != null) sb.AppendLine(e.Data); };
+                        onOutput?.Invoke(command, line);
+                    }
+
+                    process.OutputDataReceived += (_, e) => HandleLine(e.Data);
+                    process.ErrorDataReceived += (_, e) => HandleLine(e.Data);
 
                     process.Start();
+
+                    JobManager.AddProcess(process);
+
                     process.BeginOutputReadLine();
                     process.BeginErrorReadLine();
+
                     await process.WaitForExitAsync();
 
-                    return (process.ExitCode, sb.ToString(), $"yt-dlp {arguments} {url.url}");
+                    return (process.ExitCode, sb.ToString(), command);
                 }
             }
 
             public static class Downloader
             {
-                private static readonly HashSet<string> _ytSites = new(StringComparer.OrdinalIgnoreCase)
+                private static readonly HashSet<string> _ytSites =
+                    new(StringComparer.OrdinalIgnoreCase)
                 {
-                    "youtube", "youtu", "twitch", "bilibili"  // defaults
+                    "youtube",
+                    "youtu",
+                    "twitch",
+                    "bilibili"
                 };
 
-                public static void RegisterYtSite(string site)
-                {
-                    lock (_ytSites)
-                        _ytSites.Add(site);
-                }
+                public static void RegisterYtSite(string site) { lock (_ytSites) _ytSites.Add(site); }
+                public static void UnregisterYtSite(string site) { lock (_ytSites) _ytSites.Remove(site); }
+                public static IReadOnlyCollection<string> YtSites { get { lock (_ytSites) return _ytSites.ToList(); } }
 
-                public static void UnregisterYtSite(string site)
-                {
-                    lock (_ytSites)
-                        _ytSites.Remove(site);
-                }
-
-                public static IReadOnlyCollection<string> YtSites
-                {
-                    get { lock (_ytSites) return _ytSites.ToList(); }
-                }
-
-                public static async Task<(int ExitCode, string Output, string Command)> Run(Url url)
+                public static async Task<(int ExitCode, string Output, string Command)> Run(
+                    Url url,
+                    Action<string, string>? onOutput = null)
                 {
                     bool isYt;
+
                     lock (_ytSites)
                         isYt = _ytSites.Contains(url.site);
 
                     if (isYt)
-                        return await YT_Dlp.Run(url, YTDLPArgs.Build());
-                    else
-                        return await Gallery_Dl.Run(url, GalleryDLArgs.Build());
+                    {
+                        return await ProcessRunner.Run(
+                            "yt-dlp",
+                            url,
+                            YTDLPArgs.Build(),
+                            onOutput);
+                    }
+
+                    return await ProcessRunner.Run(
+                        "gallery-dl",
+                        url,
+                        GalleryDLArgs.Build(),
+                        onOutput);
                 }
             }
             public class Argument
@@ -1473,7 +1717,7 @@ namespace Mari_Downloads
                 url.url = ctx.Url;
                 url.site = ctx.Site;
 
-                Invoke(() =>
+                BeginInvoke(() =>
                 {
                     if (RepetedUrl(url))
                         return;
@@ -1490,7 +1734,7 @@ namespace Mari_Downloads
         {
             if (InvokeRequired)
             {
-                Invoke(() => UpdateRowStatus(row, status));
+                BeginInvoke(() => UpdateRowStatus(row, status));
                 return;
             }
 
@@ -1514,7 +1758,7 @@ namespace Mari_Downloads
                         {
                             if (row.DataGridView != null)
                             {
-                                Invoke(() =>
+                                BeginInvoke(() =>
                                 {
                                     if (!row.IsNewRow && row.DataGridView != null)
                                         row.DataGridView.Rows.Remove(row);
@@ -1561,7 +1805,7 @@ namespace Mari_Downloads
 
             if (InvokeRequired)
             {
-                Invoke(new Action(() => _statusLabel.Text = text));
+                BeginInvoke(new Action(() => _statusLabel.Text = text));
                 return;
             }
 
@@ -1575,19 +1819,22 @@ namespace Mari_Downloads
 
         private void StartWorkers()
         {
-            int workers = 20;
+            _workers.RemoveAll(t => t.IsCompleted);
 
-            for (int i = 0; i < workers; i++)
-            {
+            int target = 20;
+            int missing = target - _workers.Count;
+
+            for (int i = 0; i < missing; i++)
                 _workers.Add(Task.Run(WorkerLoop));
-            } 
         }
         private async Task WorkerLoop()
         {
-            try
+            while (!_cts.IsCancellationRequested)
             {
-                await foreach (var job in _downloadChannel.Reader.ReadAllAsync(_cts.Token))
+                try
                 {
+                    var job = await _downloadChannel.Reader.ReadAsync(_cts.Token);
+
                     _pauseEvent.Wait(_cts.Token);
 
                     SemaphoreSlim currentSemaphore;
@@ -1596,7 +1843,9 @@ namespace Mari_Downloads
 
                     await currentSemaphore.WaitAsync(_cts.Token);
 
-                    var siteSemaphore = Manager.SiteRateLimiter.Get(job.url.site);
+                    var siteSemaphore =
+                        Manager.SiteRateLimiter.Get(job.url.site);
+
                     await siteSemaphore.WaitAsync(_cts.Token);
 
                     try
@@ -1604,26 +1853,57 @@ namespace Mari_Downloads
                         UpdateRowStatus(job.row, "Downloading");
                         UrlsStatusUpdate();
 
-                        var (exit, output, command) = await Manager.Downloader.Run(job.url);
+                        var outputBuilder = new StringBuilder();
+
+                        var (exit, output, command) =
+                            await Manager.Downloader.Run(job.url, (cmd, line) =>
+                            {
+                                lock (outputBuilder)
+                                {
+                                    outputBuilder.AppendLine(line);
+
+                                    if (IsRowAlive(job.row))
+                                    {
+                                        string currentOutput =
+                                            $"COMMAND:{Environment.NewLine}{cmd}" +
+                                            $"{Environment.NewLine}{Environment.NewLine}" +
+                                            $"OUTPUT:{Environment.NewLine}{outputBuilder}";
+
+                                        BeginInvoke(() =>
+                                        {
+                                            job.row.Tag = currentOutput;
+
+                                            if (_openOutputs.TryGetValue(job.row, out var form))
+                                            {
+                                                form.SetText(currentOutput);
+                                            }
+                                        });
+                                    }
+                                }
+                            });
+
+                        if (_cts.IsCancellationRequested)
+                        {
+                            UpdateRowStatus(job.row, "Sleeping");
+                            continue;
+                        }
 
                         if (exit != 0)
                         {
-                            string tagContent = $"Command:\n{command}\n\nOutput:\n{output}";
-                            Invoke(() =>
-                            {
-                                if (IsRowAlive(job.row))
-                                    job.row.Tag = tagContent;
-                            });
                             UpdateRowStatus(job.row, "Error");
                         }
                         else
                         {
                             UpdateRowStatus(job.row, "Done");
-                            if (IsRowAlive(job.row))
-                                Manager.Log.Save(job.url);
+                            Log.Save(job.url);
+                            SesionUrls++; _sesionUrls.Text = $"{SesionUrls}";
                         }
 
                         UrlsStatusUpdate();
+                    }
+                    catch
+                    {
+                        UpdateRowStatus(job.row, "Error");
                     }
                     finally
                     {
@@ -1631,21 +1911,34 @@ namespace Mari_Downloads
                         currentSemaphore.Release();
                     }
                 }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch
+                {
+                    await Task.Delay(500);
+                }
             }
-            catch (OperationCanceledException) { }
         }
         private async Task StopDownloadsAsync()
         {
             _cts.Cancel();
 
+            JobManager.Kill();
+
             try
             {
                 await Task.WhenAll(_workers);
             }
-            catch (OperationCanceledException) { }
+            catch { }
 
             _workers.Clear();
+
+            _cts.Dispose();
             _cts = new CancellationTokenSource();
+
+            _pauseEvent.Set();
         }
         public void PauseDownloads()
         {
@@ -1684,12 +1977,11 @@ namespace Mari_Downloads
 
             UrlsStatusUpdate();
         }
-
         private void UrlsStatusUpdate()
         {
             if (InvokeRequired)
             {
-                Invoke(UrlsStatusUpdate);
+                BeginInvoke(UrlsStatusUpdate);
                 return;
             }
 
@@ -1767,7 +2059,7 @@ namespace Mari_Downloads
             }
             catch (Exception e) 
             {
-                MessageBox.Show(e.Message);
+                ScrollableMessageBox.Show(e.Message, "Error");
             }
 
             return new string[]
@@ -1901,10 +2193,14 @@ namespace Mari_Downloads
                 {
                     Notifications.Show(
                         "Update Available",
-                        $"gallery-dl update available\nInstalled: {_galleryInstalled}\nLatest: {_galleryLatest}",
-                        Notifications.Type.NotifType.Dependencies
+                        $"gallery-dl update available{Environment.NewLine}Installed: {_galleryInstalled}{Environment.NewLine}Latest: {_galleryLatest}",
+                        Notifications.Type.NotifType.Dependencies, ToastDuration.Long, 
+                        new Dictionary<string, string>
+                        {
+                            { "action", "update" }
+                        }
                     );
-                    GDLstate.Text = $"{_galleryInstalled}: Outdated. {_galleryLatest}: Lastest";
+                    GDLstate.Text = $"{_galleryInstalled}: Outdated. {Environment.NewLine} {_galleryLatest}: Lastest.";
                     GDLstate.ForeColor = Color.Red;
                 }
                 else
@@ -1924,10 +2220,10 @@ namespace Mari_Downloads
                 {
                     Notifications.Show(
                         "Update Available",
-                        $"YT-dlp update available\nInstalled: {_ytdlpInstalled}\nLatest: {_ytdlpLatest}",
+                        $"YT-dlp update available{Environment.NewLine}Installed: {_ytdlpInstalled}{Environment.NewLine}Latest: {_ytdlpLatest}",
                         Notifications.Type.NotifType.Dependencies
                     );
-                    YTstate.Text = $"{_ytdlpInstalled}: Outdated  {_ytdlpLatest}: Lastest";
+                    YTstate.Text = $"{_ytdlpInstalled}: Outdated. {Environment.NewLine} {_ytdlpLatest}: Lastest.";
                     YTstate.ForeColor = Color.Red;
                 }
                 else
@@ -2139,13 +2435,29 @@ namespace Mari_Downloads
             tools.Items.Add(Config);
             tools.Items.Add(Filters);
 
-            _statusStrip = new StatusStrip { Name = "StatusStrip", Font = Properties.Settings.Default.MainFont };
+            _statusStrip = new StatusStrip
+            {
+                Name = "StatusStrip",
+                Font = Properties.Settings.Default.MainFont,
+                LayoutStyle = ToolStripLayoutStyle.HorizontalStackWithOverflow
+            };
 
             _statusLabel = new ToolStripStatusLabel
             {
                 Name = "Status",
-                Text = "Sleeping..."
+                Text = "Sleeping...",
+                AutoSize = true
             };
+
+            _sesionUrls = new ToolStripStatusLabel
+            {
+                Alignment = ToolStripItemAlignment.Right,
+                Text = "0",
+                AutoSize = false
+            };
+
+            _statusStrip.Items.Add(_statusLabel);
+            _statusStrip.Items.Add(_sesionUrls);
 
             SharpClipboard clipboard = new SharpClipboard();
             clipboard.ObservableFormats.All = false;
@@ -2170,8 +2482,6 @@ namespace Mari_Downloads
                     });
                 });
             };
-
-            _statusStrip.Items.Add(_statusLabel);
 
             this.Controls.Add(tools);
             this.Controls.Add(_statusStrip);
@@ -2215,25 +2525,29 @@ namespace Mari_Downloads
                 Scrollbar(-1);
             };
 
-            // Click izquierdo en celda Status con error → mostrar output
+            // Click izquierdo en celda → mostrar output
             _urls.CellClick += (s, e) =>
             {
-                if (e.RowIndex < 0 || e.ColumnIndex < 0) return;
+                if (e.RowIndex < 0)
+                    return;
 
                 var row = _urls.Rows[e.RowIndex];
-                var col = _urls.Columns[e.ColumnIndex];
-                var status = row.Cells["Status"].Value?.ToString();
 
-                if (col.Name == "Status" && status == "Error")
+                if (!_openOutputs.TryGetValue(row, out var form) || form.IsDisposed)
                 {
-                    string output = row.Tag as string;
-                    MessageBox.Show(
-                        string.IsNullOrWhiteSpace(output) ? "No output captured." : output,
-                        "Error Details",
-                        MessageBoxButtons.OK,
-                        MessageBoxIcon.Error
-                    );
+                    form = new ScrollableMessageBox.OutputForm();
+
+                    _openOutputs[row] = form;
+
+                    form.FormClosed += (_, __) =>
+                    {
+                        _openOutputs.Remove(row);
+                    };
+
+                    form.Show();
                 }
+
+                form.SetText(row.Tag as string ?? "No output captured.");
             };
 
             // Click derecho sobre row → eliminar
@@ -2257,17 +2571,16 @@ namespace Mari_Downloads
                 {
                     string warning = status switch
                     {
-                        "Downloading" => "This URL is currently downloading.\nRemoving it will not stop the process, but the row will be gone.\nRemove anyway?",
-                        "Queued" => "This URL is queued and will start soon.\nRemoving it will not cancel the download if it has already started.\nRemove anyway?",
-                        "Sleeping" => "This URL hasn't started yet.\nRemove it?",
+                        "Downloading" => "This URL is currently downloading.{Environment.NewLine}Removing it will not stop the process, but the row will be gone.{Environment.NewLine}Remove anyway?",
+                        "Queued" => "This URL is queued and will start soon.{Environment.NewLine}Removing it will not cancel the download if it has already started.{Environment.NewLine}Remove anyway?",
+                        "Sleeping" => "This URL hasn't started yet.{Environment.NewLine}Remove it?",
                         _ => "Remove this URL?"
                     };
 
-                    var result = MessageBox.Show(
+                    var result = ScrollableMessageBox.Show(
                         warning,
                         "Remove URL",
-                        MessageBoxButtons.YesNo,
-                        MessageBoxIcon.Warning
+                        MessageBoxButtons.YesNo
                     );
 
                     if (result != DialogResult.Yes) return;
@@ -2423,35 +2736,41 @@ namespace Mari_Downloads
                 Text = "Cancel",
                 TextAlign = ContentAlignment.MiddleCenter
             };
-            cancel.Click += async (e, r) =>
+            cancel.Click += async (s, e) =>
             {
-                var result = MessageBox.Show(
-                    "Cancel all queued downloads?\nQueued URLs will be reset to Sleeping.\nDownloading ones will be finished first",
+                var result = ScrollableMessageBox.Show(
+                    "Cancel all queued and downloading Urls?{Environment.NewLine}Downloading and Queued URLs will be reset to Sleeping.{Environment.NewLine}Processing will be stopped.",
                     "Cancel Downloads",
-                    MessageBoxButtons.YesNo,
-                    MessageBoxIcon.Warning
-                );
+                    MessageBoxButtons.YesNo);
 
-                if (result != DialogResult.Yes) return;
+                if (result != DialogResult.Yes)
+                    return;
 
                 bool wasPaused = !_pauseEvent.IsSet;
+
                 if (!wasPaused)
                 {
                     PauseDownloads();
                     pauseResume.Text = "Resume";
                 }
 
-                await StopDownloadsAsync();
-                StartWorkers();
+                await StopDownloadsAsync(); 
 
                 foreach (DataGridViewRow row in _urls.Rows)
                 {
                     if (row.IsNewRow) continue;
 
                     string status = row.Cells["Status"].Value?.ToString();
-                    if (status == "Queued")
+
+                    if (status != "Error" &&
+                        status != "Done" &&
+                        status != "Sleeping")
+                    {
                         UpdateRowStatus(row, "Sleeping");
+                    }
                 }
+
+                StartWorkers();
 
                 UrlsStatusUpdate();
             };
@@ -2654,26 +2973,30 @@ namespace Mari_Downloads
             ConfigNav(AppDependencies);
 
             Control[] Gallery_dl = { new Label { Text = "Gallery-Dl:", Size = new Size(100, 35), TextAlign = ContentAlignment.MiddleCenter } };
-            Label GDLstate = new Label { Size = new Size(150, 35), TextAlign = ContentAlignment.MiddleCenter, Text = "Obtaining...", Name = "GDLState" };
+            Label GDLstate = new Label { Size = new Size(150, 35), TextAlign = ContentAlignment.MiddleCenter, Text = "Obtaining...", Name = "GDLState", ForeColor = Properties.Settings.Default.MainForeColor };
+            _NoColorControls.Add(GDLstate);
 
-            Control[] GDL_info = { new Label { Text = "Current Version: ", Size = new Size(140, 35), TextAlign = ContentAlignment.MiddleCenter }, GDLstate };
+            Control[] GDL_info = [new Label { Text = "Current Version: ", Size = new Size(140, 35), TextAlign = ContentAlignment.MiddleCenter }, GDLstate];
 
             Button GDL_install = new Button { Text = "Install Gallery-Dl", Size = new Size(140, 35), TextAlign = ContentAlignment.MiddleCenter };
             GDL_install.Click += async (s, e) =>
             {
+                GDLstate.Text = "Instaling...";
                 if (await Task.Run(() => InstallPackage("gallery-dl")))
                 {
-                    GetDependenciesVersions();
+                    await GetDependenciesVersions();
                     DependenciesCheck();
                     Notifications.Show("Gallery-dl Installed", "Gallery-dl Installed Succesfully", Notifications.Type.NotifType.Dependencies);
                 }
             };
             Button GDL_Update = new Button { Text = "Update Gallery-Dl", Size = new Size(140, 35), TextAlign = ContentAlignment.MiddleCenter };
-            GDL_install.Click += async (s, e) =>
+            GDL_Update.Click += async (s, e) =>
             {
+                GDLstate.Text = "Instaling...";
+                GDLstate.ForeColor = Properties.Settings.Default.MainForeColor;
                 if (await Task.Run(() => UpdatePackage("gallery-dl")))
                 {
-                    GetDependenciesVersions();
+                    await GetDependenciesVersions();
                     DependenciesCheck();
                     Notifications.Show("Gallery-dl Updated", "Gallery-dl Updated Succesfully", Notifications.Type.NotifType.Dependencies);
                 }
@@ -2681,16 +3004,19 @@ namespace Mari_Downloads
             Control[] GDL_Btns = { GDL_install,GDL_Update };
 
             Control[] YT_dlp = { new Label { Text = "YT-dlp:", Size = new Size(100, 35), TextAlign = ContentAlignment.MiddleCenter } };
-            Label YTState = new Label { Size = new Size(150, 35), TextAlign = ContentAlignment.MiddleCenter, Text = "Obtaining...", Name = "YTState" };
+            Label YTState = new Label { Size = new Size(150, 35), TextAlign = ContentAlignment.MiddleCenter, Text = "Obtaining...", Name = "YTState", ForeColor = Properties.Settings.Default.MainForeColor };
+            _NoColorControls.Add(YTState);
 
             Control[] YT_info = { new Label { Text = "Current Version: ", Size = new Size(140, 35), TextAlign = ContentAlignment.MiddleCenter }, YTState };
 
             Button YT_install = new Button { Text = "Install YT-dlp", Size = new Size(140, 35), TextAlign = ContentAlignment.MiddleCenter };
             YT_install.Click += async (s, e) =>
             {
+                YTState.Text = "Installing...";
+                YTState.ForeColor = Properties.Settings.Default.MainForeColor;
                 if (await Task.Run(() => InstallPackage("yt-dlp")))
                 {
-                    GetDependenciesVersions();
+                    await GetDependenciesVersions();
                     DependenciesCheck();
                     Notifications.Show("YT-dlp Installed", "YT-dlp Installed Succesfully", Notifications.Type.NotifType.Dependencies);
                 }
@@ -2698,9 +3024,10 @@ namespace Mari_Downloads
             Button YT_Update = new Button { Text = "Update YT-dlp", Size = new Size(140, 35), TextAlign = ContentAlignment.MiddleCenter };
             YT_Update.Click += async (s, e) =>
             {
+                YTState.Text = "Updating...";
                 if (await Task.Run(() => UpdatePackage("yt-dlp")))
                 {
-                    GetDependenciesVersions();
+                    await GetDependenciesVersions();
                     DependenciesCheck();
                     Notifications.Show("YT-dlp Updated", "YT-dlp Updated Succesfully", Notifications.Type.NotifType.Dependencies);
                 }
@@ -3074,16 +3401,12 @@ namespace Mari_Downloads
                     {
                         case "alias":
                             Manager.Filter.Engine.Register(
-                                new Manager.Filter.SiteAlias(e.From, e.To),
-                                e
-                            );
+                                new Manager.Filter.SiteAlias(e.From, e.To), e);
                             break;
 
                         case "ratelimit":
                             Manager.Filter.Engine.Register(
-                                new Manager.Filter.SiteRateLimit(e.Site, e.Limit),
-                                e
-                            );
+                                new Manager.Filter.SiteRateLimit(e.Site, e.Limit),e);
                             break;
 
                         case "regex":
@@ -3285,8 +3608,11 @@ namespace Mari_Downloads
 
         private DataGridView _urls;
 
+        private int SesionUrls = 0;
+
         private StatusStrip _statusStrip;
         private ToolStripStatusLabel _statusLabel;
+        private ToolStripStatusLabel _sesionUrls;
 
         private string _galleryInstalled;
         string _galleryLatest;
@@ -3305,7 +3631,11 @@ namespace Mari_Downloads
         MiniPanel YtSites_Panel;
         MiniPanel RegexFilters_Panel;
 
-        Dictionary<string,string> Media = new Dictionary<string, string>
+        private readonly Dictionary<DataGridViewRow, ScrollableMessageBox.OutputForm> _openOutputs = new();
+
+        private static List<Control> _NoColorControls = new List<Control>();
+
+        readonly Dictionary<string,string> Media = new Dictionary<string, string>
         {
             { "Icon", "icon.png" },
             { "IconIco", "icon.ico" },
@@ -3332,6 +3662,10 @@ namespace Mari_Downloads
         {
             Properties.Settings.Default.Save();
             Filter.Saver.Save("filters.json");
+            if (UrlCount()[0] - UrlCount()[3] > 0) {
+                if (ScrollableMessageBox.Show("There are still active downloads, Sleeping Urls or Errors. {Environment.NewLine} Are you sure you want to exit? {Environment.NewLine} All processes will be terminated.", "Active Downloads", MessageBoxButtons.YesNo) == DialogResult.No)
+                    e.Cancel = true;
+            }
         }
     }
 }
