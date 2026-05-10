@@ -11,6 +11,7 @@
     <ApplicationIcon>icon.ico</ApplicationIcon>
     <AssemblyName>Mari</AssemblyName>
     <AssemblyTitle>Mari</AssemblyTitle>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>

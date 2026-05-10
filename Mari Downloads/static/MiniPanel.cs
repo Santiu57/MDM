@@ -1,6 +1,6 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Text;
+using System.Drawing;
+using System.Windows.Forms;
 
 namespace Mari_Downloads
 {
@@ -13,38 +13,31 @@ namespace Mari_Downloads
 
         public Panel ContentPanel => _contentPanel;
 
-        public bool IsVisible => this.Visible;
+        public bool IsVisible => Visible;
 
         public MiniPanel(bool bottom = false, bool up = false)
         {
-            this.Dock = DockStyle.Fill;
-            this.Visible = false;
+            Dock = DockStyle.Fill;
+            Visible = false;
 
             MiniPanelManager.Register(this);
 
-            this.Padding = new Padding(10);
-            this.MinimumSize = new Size(100, 100);
+            Padding = new Padding(10);
+            MinimumSize = new Size(100, 100);
 
-            _contentPanel = new Panel
-            {
-                Dock = DockStyle.Fill,
-                AutoScroll = true
-            };
+            _contentPanel = MakeScrollPanel(DockStyle.Fill);
 
-            _downPanel = new FlowLayoutPanel
-            {
-                Dock = DockStyle.Bottom,
-                FlowDirection = FlowDirection.RightToLeft,
-                Height = 45,
-            };
+            _downPanel = MakeFlowPanel(
+                DockStyle.Bottom,
+                FlowDirection.RightToLeft,
+                60,
+                "DownPanel");
 
-            _upPanel = new FlowLayoutPanel
-            {
-                Dock = DockStyle.Top,
-                FlowDirection = FlowDirection.LeftToRight,
-                Height = 60,
-                AutoScroll = true,
-            };
+            _upPanel = MakeFlowPanel(
+                DockStyle.Top,
+                FlowDirection.LeftToRight,
+                60,
+                "UpPanel");
 
             _rowsContainer = new FlowLayoutPanel
             {
@@ -60,13 +53,101 @@ namespace Mari_Downloads
 
             if (bottom)
                 Controls.Add(_downPanel);
+
             if (up)
                 Controls.Add(_upPanel);
         }
 
+        // ─── Helpers ─────────────────────────────────────────────
+
+        private static Panel MakeScrollPanel(DockStyle dock)
+        {
+            return new Panel
+            {
+                Dock = dock,
+                AutoScroll = true
+            };
+        }
+
+        private static FlowLayoutPanel MakeFlowPanel(
+        DockStyle dock,
+        FlowDirection direction,
+        int height,
+        string tag = "Flow")
+        {
+            return new FlowLayoutPanel
+            {
+                Dock = dock,
+                FlowDirection = direction,
+                Height = height,
+                AutoScroll = true,
+                WrapContents = false,
+                Tag = tag
+            };
+        }
+
+        private static FlowLayoutPanel MakeRow(params Control[] controls)
+        {
+            var row = new FlowLayoutPanel
+            {
+                AutoSize = true,
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = false,
+                Margin = new Padding(0, 0, 0, 5)
+            };
+
+            row.Controls.AddRange(controls);
+
+            return row;
+        }
+
+        private static Control MakeCenteredRow(
+    FlowDirection direction,
+    params Control[] controls)
+        {
+            var row = new FlowLayoutPanel
+            {
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                FlowDirection = direction,
+                WrapContents = false,
+                Margin = new Padding(0)
+            };
+
+            row.Controls.AddRange(controls);
+
+            var container = new Panel
+            {
+                Height = row.PreferredSize.Height + 10,
+                Width = row.PreferredSize.Width + 20,
+                Margin = new Padding(0),
+                Padding = new Padding(0)
+            };
+
+            void CenterRow()
+            {
+                row.Location = new Point(
+                    Math.Max(0, (container.Width - row.Width) / 2),
+                    Math.Max(0, (container.Height - row.Height) / 2));
+            }
+
+            container.Controls.Add(row);
+
+            row.SizeChanged += (_, __) => CenterRow();
+
+            container.Resize += (_, __) => CenterRow();
+
+            CenterRow();
+
+            return container;
+        }
+
+        // ─── Public API ─────────────────────────────────────────
+
         public void AddControl(Control control, DockStyle dock = DockStyle.Top)
         {
             control.Dock = dock;
+
             _contentPanel.Controls.Add(control);
             _contentPanel.Controls.SetChildIndex(control, 0);
         }
@@ -74,53 +155,31 @@ namespace Mari_Downloads
         public void SetMainControl(Control control)
         {
             _contentPanel.Controls.Clear();
+
             control.Dock = DockStyle.Fill;
+
             _contentPanel.Controls.Add(control);
         }
 
-        public void AddDownControls(Control[] controls)
+        public void AddDownControls(params Control[] controls)
         {
-            var row = new FlowLayoutPanel
-            {
-                AutoSize = true,
-                FlowDirection = FlowDirection.LeftToRight,
-                WrapContents = false
-            };
-            foreach (Control control in controls)
-            {
-                row.Controls.Add(control);
-            }
-            _downPanel.Controls.Add(row);
-        }
-        public void AddUpControls(Control[] controls)
+            _downPanel.Controls.Add(
+            MakeCenteredRow(
+                FlowDirection.LeftToRight,
+                controls));
+                }
+
+        public void AddUpControls(params Control[] controls)
         {
-            var row = new FlowLayoutPanel
-            {
-                AutoSize = true,
-                FlowDirection = FlowDirection.LeftToRight,
-                WrapContents = false
-            };
-            foreach (Control control in controls)
-            {
-                row.Controls.Add(control);
-            }
-            _upPanel.Controls.Add(row);
-        }
+            _upPanel.Controls.Add(
+            MakeCenteredRow(
+                FlowDirection.LeftToRight,
+                controls));
+                }
 
-        public void AddRow(Control[] controls)
+        public void AddRow(params Control[] controls)
         {
-            var row = new FlowLayoutPanel
-            {
-                AutoSize = true,
-                FlowDirection = FlowDirection.LeftToRight,
-                WrapContents = false,
-                Margin = new Padding(0, 0, 0, 10)
-            };
-
-            foreach (Control control in controls)
-                row.Controls.Add(control);
-
-            _rowsContainer.Controls.Add(row);
+            _rowsContainer.Controls.Add(MakeRow(controls));
         }
     }
 }
