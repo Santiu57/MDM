@@ -98,6 +98,8 @@ namespace Mari_Downloads
             _semaphore = new SemaphoreSlim(_maxDownloads);
             StartWorkers();
 
+            MiniPanelManager.PreloadAll();
+
             MiniPanelManager.Show(UrlPnl);
         }
 
@@ -140,7 +142,7 @@ namespace Mari_Downloads
             Padding = new Padding(1);
 
             Text = "(ᓀ‸ᓂ)";
-            Icon = new Icon("media/icon.ico");
+            Icon = new Icon(Path.Combine(Application.StartupPath, "media", "icon.ico"));
         }
 
         private bool RepetedUrl(Manager.Url url)
@@ -582,13 +584,13 @@ namespace Mari_Downloads
             UrlsShow.Click += (_, _) => MiniPanelManager.Show(UrlPnl);
 
             ToolStripButton Config = new ToolStripButton { Image = Media.Get("Config"), Alignment = ToolStripItemAlignment.Right };
-            Config.Click += (_, _) => MiniPanelManager.Show(AppConfiguration);
+            Config.Click += (_, _) => MiniPanelManager.Show(MiniPanelManager.ConfigLast ?? AppConfiguration);
 
             ToolStripButton Args = new ToolStripButton { Image = Media.Get("Icon") };
-            Args.Click += (_, _) => MiniPanelManager.Show(Arguments_GDL);
+            Args.Click += (_, _) => MiniPanelManager.Show(MiniPanelManager.ArgsLast ??  Arguments_GDL);
 
             ToolStripButton Filters = new ToolStripButton { Image = Media.Get("Icon") };
-            Filters.Click += (_, _) => MiniPanelManager.Show(Alias_Override);
+            Filters.Click += (_, _) => MiniPanelManager.Show(MiniPanelManager.FiltersLast ?? Alias_Override);
 
             tools.Items.Add(UrlsShow);
             tools.Items.Add(Args);
@@ -607,8 +609,8 @@ namespace Mari_Downloads
             _sesionUrls = new ToolStripStatusLabel
             {
                 Alignment = ToolStripItemAlignment.Right,
-                Text = "0",
-                AutoSize = false
+                Text = "No downloads so far",
+                AutoSize = true
             };
 
             _statusStrip.Items.Add(_statusLabel);
@@ -778,7 +780,7 @@ namespace Mari_Downloads
             Action onSave,
             object[] defaultAddRow)
         {
-            var panel = new MiniPanel(true, true);
+            var panel = new MiniPanel("Filter", true, true);
 
             FiltersNav(panel);
 
@@ -878,7 +880,7 @@ namespace Mari_Downloads
 
         private MiniPanel UrlsPanel()
         {
-            var urlpnl = new MiniPanel(true);
+            var urlpnl = new MiniPanel("Urls", true);
 
             _urls = MakeDgv(false, false,
                 ("Status", "Status", true),
@@ -1151,7 +1153,7 @@ namespace Mari_Downloads
 
         private MiniPanel AppConfig()
         {
-            var panel = new MiniPanel(false, true);
+            var panel = new MiniPanel("Config", false, true);
             ConfigNav(panel);
 
             panel.AddRow([
@@ -1170,12 +1172,23 @@ namespace Mari_Downloads
                 MakeLabel("Seconds (-1 To never)", size: new Size(160, 35))
             ]);
 
+            panel.AddRow([
+                MakeSettingsCheckBox(
+                    "Automatic Startup",
+                    () => Properties.Settings.Default.AutoStartup,
+                    value =>
+                    {
+                        Properties.Settings.Default.AutoStartup = value;
+                        Startup.SetStartup(value);
+                    })
+            ]);
+
             return panel;
         }
 
         private MiniPanel AppDependenciesBuild()
         {
-            var panel = new MiniPanel(false, true);
+            var panel = new MiniPanel("Config", false, true);
             ConfigNav(panel);
 
             panel.AddRow(BuildDependencyRows("Gallery-Dl", "gallery-dl", "GDLState",
@@ -1249,7 +1262,7 @@ namespace Mari_Downloads
         // para respetar el layout original de filas.
         private MiniPanel AppDependenciesBuildImpl()
         {
-            var panel = new MiniPanel(false, true);
+            var panel = new MiniPanel("Config", false, true);
             ConfigNav(panel);
 
             AddDependencySection(panel, "Gallery-Dl", "gallery-dl", "GDLState");
@@ -1304,7 +1317,7 @@ namespace Mari_Downloads
 
         private MiniPanel NotificationsConfigBuilder()
         {
-            var panel = new MiniPanel(false, true);
+            var panel = new MiniPanel("Config", false, true);
             ConfigNav(panel);
             // Aquí irán los controles de configuración de notificaciones cuando se implementen
             return panel;
@@ -1312,7 +1325,7 @@ namespace Mari_Downloads
 
         private MiniPanel AppPersonalizationBuild()
         {
-            var panel = new MiniPanel(false, true);
+            var panel = new MiniPanel("Config", false, true);
             ConfigNav(panel);
 
             var rows = Properties.Settings.Default.Properties
@@ -1364,7 +1377,7 @@ namespace Mari_Downloads
 
         private MiniPanel Args_GDL()
         {
-            var panel = new MiniPanel(false, true);
+            var panel = new MiniPanel("Arg", false, true);
             ArgsNav(panel);
             foreach (var arg in GalleryDLArgs.Profile.All())
                 panel.AddRow(RowFormat.Argument(arg, () => GalleryDLArgs.Save()));
@@ -1373,7 +1386,7 @@ namespace Mari_Downloads
 
         private MiniPanel Args_YTDL()
         {
-            var panel = new MiniPanel(false, true);
+            var panel = new MiniPanel("Arg", false, true);
             ArgsNav(panel);
             foreach (var arg in YTDLPArgs.Profile.All())
                 panel.AddRow(RowFormat.Argument(arg, () => YTDLPArgs.Save()));
@@ -1480,25 +1493,48 @@ namespace Mari_Downloads
             {
                 foreach (DataGridViewRow row in dgv.Rows)
                 {
-                    if (row.IsNewRow) continue;
+                    if (row.IsNewRow)
+                        continue;
+
                     string site = row.Cells["Site"].Value?.ToString()?.Trim();
-                    string pattern = row.Cells["Pattern"].Value?.ToString()?.Trim();
-                    string replace = row.Cells["Replace"].Value?.ToString();
-                    if (string.IsNullOrWhiteSpace(pattern) || replace == null) continue;
+
+                    string pattern = row.Cells["Pattern"].Value?
+                        .ToString()?
+                        .Trim();
+
+                    // Permitir replace vacío
+                    string replace = row.Cells["Replace"].Value?
+                        .ToString() ?? "";
+
+                    // Solo el pattern es obligatorio
+                    if (string.IsNullOrWhiteSpace(pattern))
+                        continue;
 
                     var entry = new Manager.Filter.Entry
                     {
                         Type = "regex",
-                        Site = string.IsNullOrWhiteSpace(site) ? null : site,
+                        Site = string.IsNullOrWhiteSpace(site)
+                            ? null
+                            : site,
+
                         From = pattern,
                         Replace = replace
                     };
+
                     Manager.Filter.Engine.Register(
-                        new Manager.Filter.RegexUrlRewrite(pattern, replace, entry.Site), entry);
+                        new Manager.Filter.RegexUrlRewrite(
+                            pattern,
+                            replace,
+                            entry.Site),
+
+                        entry);
                 }
             });
 
-            return MakeFilterPanel(dgv, Save, ["", "^https://", "https://"]);
+            return MakeFilterPanel(
+                dgv,
+                Save,
+                ["", "^https://", "https://"]);
         }
 
         // ─── FindControl ──────────────────────────────────────────────────────────────
@@ -1555,17 +1591,17 @@ namespace Mari_Downloads
         private string _ytdlpInstalled;
         private string _ytdlpLatest;
 
-        private MiniPanel UrlPnl;
-        private MiniPanel AppConfiguration;
-        private MiniPanel AppPersonalization;
-        private MiniPanel AppDependencies;
-        private MiniPanel NotificationsConfig;
-        private MiniPanel Arguments_GDL;
-        private MiniPanel Arguments_YTDL;
-        private MiniPanel Alias_Override;
-        private MiniPanel Rate_Limiter;
-        private MiniPanel YtSites_Panel;
-        private MiniPanel RegexFilters_Panel;
+        public MiniPanel UrlPnl;
+        public MiniPanel AppConfiguration;
+        public MiniPanel AppPersonalization;
+        public MiniPanel AppDependencies;
+        public MiniPanel NotificationsConfig;
+        public MiniPanel Arguments_GDL;
+        public MiniPanel Arguments_YTDL;
+        public MiniPanel Alias_Override;
+        public MiniPanel Rate_Limiter;
+        public MiniPanel YtSites_Panel;
+        public MiniPanel RegexFilters_Panel;
 
         private readonly Dictionary<DataGridViewRow, ScrollableMessageBox.OutputForm> _openOutputs = new();
 
@@ -1575,6 +1611,7 @@ namespace Mari_Downloads
         {
             await GetDependenciesVersions();
             DependenciesCheck();
+            Properties.Settings.Default.AutoStartup = Startup.IsStartupEnabled();
         }
 
         private void Main_FormClosing(object sender, FormClosingEventArgs e)

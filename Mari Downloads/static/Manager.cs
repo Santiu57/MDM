@@ -246,12 +246,18 @@ namespace Mari_Downloads
             {
                 public static void Load(string file)
                 {
-                    if (!File.Exists(file))
+                    // Resolve relative paths to absolute paths in the application folder
+                    var path = Path.IsPathRooted(file) ? file : Path.Combine(Application.StartupPath, file);
+
+                    if (!File.Exists(path))
                         return;
 
-                    var json = File.ReadAllText(file);
+                    var json = File.ReadAllText(path);
 
                     var filters = JsonSerializer.Deserialize<List<Entry>>(json);
+
+                    if (filters == null)
+                        return;
 
                     foreach (var f in filters)
                     {
@@ -307,7 +313,9 @@ namespace Mari_Downloads
                             options
                         );
 
-                        File.WriteAllText(file, json);
+                        var path = Path.IsPathRooted(file) ? file : Path.Combine(Application.StartupPath, file);
+
+                        File.WriteAllText(path, json);
                     }
                     catch (Exception ex)
                     {
@@ -744,6 +752,16 @@ namespace Mari_Downloads
                     enabled: Properties.Settings.Default.YTExtractAu,
                     inputType: Argument.ControlType.DropDown,
                     options: new[] { "mp3", "aac", "alac", "opus", "vorbis", "m4a", "flac", "wav" }));
+
+                Profile.Add(new Argument(
+                    "Post Processor Args",
+                    "--postprocessor-args",
+                    Properties.Settings.Default.YTPostProcessorArgs));
+
+                Profile.Add(new Argument(
+                    "Extractor Args",
+                    "--extractor-args",
+                    Properties.Settings.Default.YTExtractorArgs));
 
                 Profile.Add(new Argument(
                     "ExtraArguments",

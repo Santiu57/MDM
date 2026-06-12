@@ -34,7 +34,8 @@ namespace Mari_Downloads
             string notFoundFiles = "";
             foreach (var file in media)
             {
-                if (!File.Exists($"media/{file.Value}"))
+                var path = Path.Combine(Application.StartupPath, "media", file.Value);
+                if (!File.Exists(path))
                 {
                     notFoundFiles += $"{file.Value}{Environment.NewLine}";
                 }

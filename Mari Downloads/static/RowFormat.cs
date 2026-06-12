@@ -13,7 +13,8 @@ namespace Mari_Downloads
             Panel Preview = new Panel
             {
                 Size = new Size(35, 35),
-                BackColor = getter()
+                BackColor = getter(),
+                Tag = "NoAutoColor"
             };
 
             Button change = new Button { Text = "Change", Size = new Size(100, 35) };

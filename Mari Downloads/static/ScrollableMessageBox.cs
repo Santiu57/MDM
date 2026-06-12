@@ -1,7 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Text;
-using static Mari_Downloads.Main;
 
 namespace Mari_Downloads
 {
@@ -13,12 +10,14 @@ namespace Mari_Downloads
             MessageBoxButtons buttons = MessageBoxButtons.OK
             )
         {
+
+
             Form form = new Form();
             form.Text = title;
             form.StartPosition = FormStartPosition.CenterScreen;
             form.Size = new Size(700, 500);
             form.MinimumSize = new Size(400, 300);
-            form.Icon = new Icon("media/icon.ico");
+            form.Icon = new Icon(Path.Combine(Application.StartupPath, "media", "icon.ico"));
 
             TextBox textBox = new TextBox();
             textBox.Multiline = true;
@@ -100,7 +99,7 @@ namespace Mari_Downloads
 
                 try
                 {
-                    Icon = new Icon("media/icon.ico");
+                    Icon = new Icon(Path.Combine(Application.StartupPath, "media", "icon.ico"));
                 }
                 catch { }
 

@@ -10,13 +10,24 @@ namespace Mari_Downloads
         private readonly FlowLayoutPanel _downPanel;
         private readonly FlowLayoutPanel _upPanel;
         private readonly FlowLayoutPanel _rowsContainer;
+        public readonly string Category;
 
         public Panel ContentPanel => _contentPanel;
 
         public bool IsVisible => Visible;
 
-        public MiniPanel(bool bottom = false, bool up = false)
+        public MiniPanel(string category, bool bottom = false, bool up = false)
         {
+            Category = category;
+            SuspendLayout();
+
+            DoubleBuffered = true;
+            SetStyle(
+                ControlStyles.AllPaintingInWmPaint |
+                ControlStyles.UserPaint |
+                ControlStyles.OptimizedDoubleBuffer,
+                true);
+
             Dock = DockStyle.Fill;
             Visible = false;
 
@@ -56,6 +67,8 @@ namespace Mari_Downloads
 
             if (up)
                 Controls.Add(_upPanel);
+
+            ResumeLayout(false);
         }
 
         // ─── Helpers ─────────────────────────────────────────────
@@ -93,7 +106,8 @@ namespace Mari_Downloads
                 AutoSize = true,
                 FlowDirection = FlowDirection.LeftToRight,
                 WrapContents = false,
-                Margin = new Padding(0, 0, 0, 5)
+                Margin = new Padding(0, 0, 0, 5),
+                Tag = "Row"
             };
 
             row.Controls.AddRange(controls);
