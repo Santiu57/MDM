@@ -14,7 +14,7 @@ namespace Mari_Downloads
             public string url { get; set; }
             public string site { get; set; }
             public Status status { get; set; }
-
+            public Filter.Context Context { get; set; }
             public Url(string url)
             {
                 var basestatus = new Manager.Status(); basestatus.Change(Status.StatusType.Pending);
@@ -98,6 +98,8 @@ namespace Mari_Downloads
                 public string Url { get; set; }
 
                 public string Site { get; set; }
+
+                public List<string> DynamicArguments { get; } = new();
 
                 public bool StopProcessing { get; set; }
             }
@@ -242,6 +244,45 @@ namespace Mari_Downloads
                     ctx.Url = _pattern.Replace(ctx.Url, _replace);
                 }
             }
+            public class DynamicArgument : IUrlFilter
+            {
+                private readonly Regex _pattern;
+                private readonly string _argument;
+                private readonly string _site;
+
+                public DynamicArgument(string pattern, string argument, string site)
+                {
+                    _pattern = new Regex(pattern, RegexOptions.Compiled | RegexOptions.IgnoreCase);
+                    _argument = argument;
+                    _site = site;
+                }
+
+                public bool Match(Context ctx)
+                {
+                    if (_site != null && ctx.Site != _site)
+                        return false;
+
+                    return _pattern.IsMatch(ctx.Url);
+                }
+
+                public void Apply(Context ctx)
+                {
+                    var match = _pattern.Match(ctx.Url);
+
+                    if (!match.Success)
+                        return;
+
+                    string argument = _argument;
+
+                    for (int i = 1; i < match.Groups.Count; i++)
+                    {
+                        string value = Uri.UnescapeDataString(match.Groups[i].Value);
+                        argument = argument.Replace($"{{{i}}}", value);
+                    }
+
+                    ctx.DynamicArguments.Add(argument);
+                }
+            }
             public static class Loader
             {
                 public static void Load(string file)
@@ -290,6 +331,13 @@ namespace Mari_Downloads
                             case "regex":
                                 Engine.Register(
                                     new RegexUrlRewrite(f.From, f.Replace, f.Site),
+                                    f
+                                );
+                                break;
+
+                            case "dynamic":
+                                Engine.Register(
+                                    new DynamicArgument(f.From, f.Replace, f.Site),
                                     f
                                 );
                                 break;
@@ -498,19 +546,32 @@ namespace Mari_Downloads
                 lock (_ytSites)
                     isYt = _ytSites.Contains(url.site);
 
+                string args = "";
+                var ctx = Filter.Engine.Process(url.url, url.site);
+
                 if (isYt)
                 {
+                    args = YTDLPArgs.Build();
+
+                    if (ctx.DynamicArguments.Count > 0)
+                        args += " " + string.Join(" ", ctx.DynamicArguments);
+
                     return await ProcessRunner.Run(
                         "yt-dlp",
                         url,
-                        YTDLPArgs.Build(),
+                        args,
                         onOutput);
                 }
+
+                args = GalleryDLArgs.Build();
+
+                if (ctx.DynamicArguments.Count > 0)
+                    args += " " + string.Join(" ", ctx.DynamicArguments);
 
                 return await ProcessRunner.Run(
                     "gallery-dl",
                     url,
-                    GalleryDLArgs.Build(),
+                    args,
                     onOutput);
             }
         }

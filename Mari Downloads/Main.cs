@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Channels;
+using Windows.Devices.Enumeration;
 using WK.Libraries.SharpClipboardNS;
 using static Mari_Downloads.Manager;
 
@@ -83,6 +84,7 @@ namespace Mari_Downloads
             Rate_Limiter = Rate();
             YtSites_Panel = YtSitesPanel();
             RegexFilters_Panel = RegexFilters();
+            DynamicArgs_Panel = DynamicArgs();
 
             BaseComponents();
             SetWindowConfig();
@@ -170,6 +172,7 @@ namespace Mari_Downloads
 
                 url.url = ctx.Url;
                 url.site = ctx.Site;
+                url.Context = ctx;
 
                 BeginInvoke(() =>
                 {
@@ -778,11 +781,13 @@ namespace Mari_Downloads
         private MiniPanel MakeFilterPanel(
             DataGridView dgv,
             Action onSave,
-            object[] defaultAddRow)
+            object[] defaultAddRow,
+            string filter = "Filter")
         {
-            var panel = new MiniPanel("Filter", true, true);
+            var panel = new MiniPanel(filter, true, true);
 
-            FiltersNav(panel);
+            if(filter == "Filter")
+                FiltersNav(panel);
 
             dgv.CellEndEdit += (_, _) => onSave();
 
@@ -840,6 +845,9 @@ namespace Mari_Downloads
                     break;
                 case "regex":
                     Manager.Filter.Engine.Register(new Manager.Filter.RegexUrlRewrite(e.From, e.Replace, e.Site), e);
+                    break;
+                case "dynamic":
+                    Manager.Filter.Engine.Register(new Manager.Filter.DynamicArgument(e.From, e.Replace, e.Site), e);
                     break;
             }
         }
@@ -1371,7 +1379,8 @@ namespace Mari_Downloads
         {
             reference.AddUpControls([
                 MakeButton("Gallery-DL Arguments", (_, _) => MiniPanelManager.Show(Arguments_GDL)),
-                MakeButton("YT-dlp Arguments",     (_, _) => MiniPanelManager.Show(Arguments_YTDL))
+                MakeButton("YT-dlp Arguments",     (_, _) => MiniPanelManager.Show(Arguments_YTDL)),
+                MakeButton("Dynamic Arguments",     (_, _) => MiniPanelManager.Show(DynamicArgs_Panel))
             ]);
         }
 
@@ -1537,6 +1546,65 @@ namespace Mari_Downloads
                 ["", "^https://", "https://"]);
         }
 
+        private MiniPanel DynamicArgs()
+        {
+            var dgv = MakeDgv(false, false,
+                ("Site", "Site", false),
+                ("Pattern", "Regex Pattern", false),
+                ("Argument", "Argument", false));
+
+            foreach (var r in Manager.Filter.Engine.Entries.Where(e => e.Type == "dynamic"))
+                dgv.Rows.Add(r.Site, r.From, r.Replace);
+
+            void Save() => RebuildFilterEngine("dynamic", () =>
+            {
+                foreach (DataGridViewRow row in dgv.Rows)
+                {
+                    if (row.IsNewRow)
+                        continue;
+
+                    string site = row.Cells["Site"].Value?.ToString()?.Trim();
+
+                    string pattern = row.Cells["Pattern"].Value?
+                        .ToString()?
+                        .Trim();
+
+                    string argument = row.Cells["Argument"].Value?
+                        .ToString() ?? "";
+
+                    if (string.IsNullOrWhiteSpace(pattern))
+                        continue;
+
+                    if (string.IsNullOrWhiteSpace(site))
+                        continue;
+
+                    var entry = new Manager.Filter.Entry
+                    {
+                        Type = "dynamic",
+                        Site = site,
+                        From = pattern,
+                        Replace = argument
+                    };
+
+                    Manager.Filter.Engine.Register(
+                        new Manager.Filter.DynamicArgument(
+                            pattern,
+                            argument,
+                            entry.Site),
+
+                        entry);
+                }
+            });
+
+            MiniPanel panel = MakeFilterPanel(
+                dgv,
+                Save,
+                ["", @"[?&]tag=([^&]+)", "--filter \"'{1}' in tags\""],"Arg");
+
+            ArgsNav(panel);
+            return panel;
+        }
+
         // ─── FindControl ──────────────────────────────────────────────────────────────
 
         public static T FindControl<T>(Control parent, Func<T, bool> predicate) where T : class
@@ -1598,6 +1666,7 @@ namespace Mari_Downloads
         public MiniPanel NotificationsConfig;
         public MiniPanel Arguments_GDL;
         public MiniPanel Arguments_YTDL;
+        public MiniPanel DynamicArgs_Panel;
         public MiniPanel Alias_Override;
         public MiniPanel Rate_Limiter;
         public MiniPanel YtSites_Panel;

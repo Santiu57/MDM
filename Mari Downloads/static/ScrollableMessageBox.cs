@@ -82,6 +82,11 @@ namespace Mari_Downloads
             AppCustomization.ColorComponents(form, Properties.Settings.Default.MainBackColor, Properties.Settings.Default.MainForeColor);
             AppCustomization.FontChange(form, Properties.Settings.Default.MainFont);
 
+            form.Shown += (_, _) =>
+            {
+                form.ActiveControl = (Control)form.AcceptButton;
+            };
+
             form.ShowDialog();
 
             return result;
